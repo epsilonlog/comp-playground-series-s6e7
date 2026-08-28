@@ -210,10 +210,28 @@ column's standard deviation and both become rankable. As overlap between two bel
 
 The same quantity read as **overlapping coefficient**: model each class as a normal with
 equal σ, means `d·σ` apart. Put them at ±d/2 so the curves cross at 0; by symmetry each
-contributes its own tail beyond the crossing, so `OVL = 2·Φ(−d/2)`. More usefully, the
-best accuracy a **single threshold** can reach on that feature (equal priors) is
-`1 − OVL/2 = Φ(d/2)` — d = 2.1 gives 86%, d = 0.05 gives 51%, a coin flip. Assumes
-normality and equal variances.
+contributes its own tail beyond the crossing:
+
+    OVL            = 2 · Φ(−d/2)
+    best_split_acc = Φ(d/2) = 1 − OVL/2        with  Φ(z) = ½(1 + erf(z/√2))
+
+d = 2.1 gives 29% overlap and 0.86; d = 0.05 gives 98% and 0.51, a coin flip. Assumes
+normality, equal variance, one threshold, two classes.
+
+**Why the equal-priors assumption is a feature, not a flaw here:** accuracy under equal
+priors *is* balanced accuracy for two classes. So `best_split_acc` already reads in the
+competition metric's units — no correction needed.
+
+**Correlation vs shared variance.** `r` reads far larger than it is; `r²` is the fraction
+of variance one variable linearly explains in the other.
+
+    r = 0.3 →  9%      r = 0.7 → 49%   ← only here is half the variance shared
+    r = 0.5 → 25%      r = 0.95 → 90%
+
+That is why the redundancy threshold sits near 0.95, not at a number that merely *sounds*
+high. Two caveats: with Spearman it is shared variance of the *ranks*; and `r² = 0` means
+no monotone association, not independence — `y = x²` on symmetric `x` has `r ≈ 0` and is
+perfectly determined.
 
 Three blind spots, all of which bit here: dividing by the *overall* std understates
 separation (the pooled within-class std is correct, so the estimate is conservative); it
