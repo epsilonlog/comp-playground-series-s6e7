@@ -568,3 +568,66 @@ def missingness_dispersion(
     return pl.DataFrame(rows).with_columns(
         (pl.col("variance") / predicted_var).alias("var_vs_independent")
     )
+
+
+def shift_power(
+    n_rows: int,
+    *,
+    n_bins: int = 50,
+    pi: float = 0.3,
+    deltas: Sequence[float] = (0.0, 0.002, 0.005, 0.010, 0.015, 0.020, 0.030),
+    shifted_bins: int | None = 1,
+    trials: int = 400,
+    seed: int = 42,
+) -> pl.DataFrame:
+    """How large a shift must be before `numeric_shift` can see it. Simulated.
+
+    Decision: what a **large** p-value licenses you to conclude, and what counts as a
+    **big** `max_bin_dev`. Both need a reference point that no single dataset provides.
+
+    Injects a known deviation `delta` into `shifted_bins` of the bins, runs the same
+    chi-square, and reports how often it fires. Two readings come out of it:
+
+    - **The noise floor.** At `delta = 0`, `max_bin_dev` does *not* come back near zero —
+      with `n_bins` bins the luckiest one always drifts. That floor, not zero, is what an
+      observed `max_bin_dev` has to beat.
+    - **The resolution.** The smallest `delta` detected reliably. A large p-value only
+      rules out shifts *above* it, so this is what "no shift" actually means here.
+
+    `shifted_bins=None` shifts every bin (a whole-column drift, the easiest case to
+    detect); a single bin is the hardest, because 49 well-behaved bins dilute it.
+
+    Pure simulation — it depends only on the shape of the problem, not on the data, so it
+    can be run before the real test.
+    """
+    rng = np.random.default_rng(seed)
+    per_bin = np.full(n_bins, n_rows // n_bins)
+    k = n_bins if shifted_bins is None else shifted_bins
+    rows = []
+    for delta in deltas:
+        shares = np.full(n_bins, pi)
+        shares[:k] = pi + delta
+        fired, p_values, devs = 0, [], []
+        for _ in range(trials):
+            count_b = rng.binomial(per_bin, shares)
+            count_a = per_bin - count_b
+            expected_b = per_bin * pi
+            expected_a = per_bin - expected_b
+            chi2 = float(
+                (((count_a - expected_a) ** 2) / expected_a).sum()
+                + (((count_b - expected_b) ** 2) / expected_b).sum()
+            )
+            p = _chi2_sf(chi2, n_bins - 1)
+            fired += p < 0.05
+            p_values.append(p)
+            devs.append(float(np.abs(count_b / per_bin - pi).max()))
+        rows.append(
+            {
+                "delta": delta,
+                "shifted_bins": k,
+                "detected_pct": 100.0 * fired / trials,
+                "median_p": float(np.median(p_values)),
+                "median_max_bin_dev": float(np.median(devs)),
+            }
+        )
+    return pl.DataFrame(rows)
