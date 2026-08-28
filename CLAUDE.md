@@ -267,6 +267,29 @@ diffs in git. Graduate later if the ledger outgrows it.
 
 ---
 
+## LEARNING.md — the operator's notebook
+
+The operator is here to learn by doing. `LEARNING.md` is the record of that.
+
+**Claude maintains it without being asked.** After explaining any concept the operator
+engaged with — asked a follow-up about, corrected, or worked through — append a section.
+Do it in the same turn, don't batch it, and mention it in one line rather than reprinting
+the content.
+
+Rules:
+
+- **Concepts and reasoning only.** No code, no config, no API signatures. If it lives in
+  the repo, it doesn't belong here. This is the part that transfers to the next
+  competition.
+- **Append-only, newest last.** Dated `## YYYY-MM-DD — <concept>` headings.
+- **Keep the worked numbers.** The toy example that made it click is the most valuable
+  part of an entry. Don't compress it into an abstract statement.
+- **Write what was actually understood**, including corrections of the operator's
+  first reading — those are the entries that stick.
+- Do not log routine build steps, tool output, or things the operator already knew.
+
+---
+
 ## Git
 
 Repo per competition, named `comp-<slug>`. Claude handles commits and branches.
