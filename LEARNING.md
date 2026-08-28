@@ -219,6 +219,60 @@ OOF is **not** your test predictions. Those come from averaging the K fold-model
 
 ---
 
+## 2026-08-28 — Counting pairs without a loop
+
+A confusion matrix is just a count of how often each **(true class, predicted class)**
+pair occurs. Cell `[i][j]` = rows that were truly *i* but predicted *j*. Every row of
+data contributes exactly one pair.
+
+Counting utilities count *single integers*, not tuples. So squash the pair into one
+integer using base-*n* positional notation:
+
+    flat = true_index * n_classes + predicted_index
+
+With 2 classes: (0,0)→0, (0,1)→1, (1,0)→2, (1,1)→3. Unique, no collisions — the same
+arithmetic as "row *r*, column *c* of a grid *w* wide is cell `r*w + c`". Count the flat
+integers, reshape back to *n × n*, and the confusion matrix falls out with no Python
+loop at all.
+
+Why it's worth the trick: a Python loop over 690k rows is roughly a second. The
+decision-rule search calls this hundreds of times. One C-level pass instead of a loop is
+the difference between a search that runs and one that doesn't.
+
+Generalises well beyond confusion matrices — any time you need to count combinations of
+a few small-cardinality integers, encode them into one integer and count that.
+
+---
+
+## 2026-08-28 — Where probabilities stop and labels begin
+
+The metric never sees probabilities. The pipeline is:
+
+    model         →  Q        (n_rows, n_classes)  floats, rows sum to 1
+    decision rule →  y_pred   (n_rows,)            one label per row
+    metric        →  score    one number
+
+Balanced accuracy is defined on the confusion matrix, which is defined on hard labels.
+By the time it is called, the collapse has already happened, so it cannot distinguish:
+
+    q = (0.51, 0.49, 0.00)  → argmax 0
+    q = (0.99, 0.01, 0.00)  → argmax 0     identical contribution to the score
+
+All confidence information is discarded. That is not an implementation detail — it *is*
+the step-function property, and it's why there's no gradient to train on.
+
+Probabilities do their work one step earlier, in the decision rule:
+
+    for each candidate m:
+        y_pred = argmax(Q * m)          ← probabilities used here
+        score  = metric(y_true, y_pred) ← labels only
+
+This is the concrete reason to save **probabilities, not labels**, as OOF. Trying a new
+`m` requires `Q`. From stored labels there is nothing left to search over — the argmax
+already destroyed the information.
+
+---
+
 ## 2026-08-28 — Why reimplement a metric sklearn already has
 
 Not because sklearn is wrong — sklearn is the **reference**, and the unit test asserts
