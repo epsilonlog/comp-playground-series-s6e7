@@ -208,6 +208,13 @@ column's standard deviation and both become rankable. As overlap between two bel
     0.9  →  ~65% overlap
     0.05 →  ~98% overlap    the two curves are the same curve
 
+The same quantity read as **overlapping coefficient**: model each class as a normal with
+equal σ, means `d·σ` apart. Put them at ±d/2 so the curves cross at 0; by symmetry each
+contributes its own tail beyond the crossing, so `OVL = 2·Φ(−d/2)`. More usefully, the
+best accuracy a **single threshold** can reach on that feature (equal priors) is
+`1 − OVL/2 = Φ(d/2)` — d = 2.1 gives 86%, d = 0.05 gives 51%, a coin flip. Assumes
+normality and equal variances.
+
 Three blind spots, all of which bit here: dividing by the *overall* std understates
 separation (the pooled within-class std is correct, so the estimate is conservative); it
 compares means only, so equal means with different variances score zero and are still
@@ -216,6 +223,53 @@ middle. Two features scored equally at ~0.82 — one separated all three classes
 put two classes on top of each other and only found the third. Under a macro metric those
 are not equally useful. The ranking says where to look; the raw per-class means say what
 you found.
+
+---
+
+## 2026-08-28 — Monotone transformations are invisible to trees
+
+A tree split asks "is x ≤ 7.2?" — a question about **rank order**. Log, sqrt, Box-Cox and
+every other monotone transform preserve rank order, so they produce the identical split,
+the identical tree, and identical predictions. Log-transforming a feature for a GBDT is a
+no-op.
+
+Transforms exist for models that care about *distance* and *linearity*: a linear model
+seeing a curved relationship as straight, a squared loss not being dominated by extreme
+values, a distance metric not hijacked by scale. GBDTs have none of those properties.
+
+So on a GBDT-first plan the skew question is moot before you measure it. It returns only
+when a linear model or a network joins the blend — and then it is usually standardisation
+that is wanted, not a log.
+
+**Clipping is a different question and does matter.** A clipped column piles values at a
+wall — income capped at 100,000 with 3% of rows exactly there. That spike is real
+structure a tree will happily learn, and it usually deserves an indicator or an explicit
+censoring treatment. Distinguish it from a *truncated* sampling range, where the density
+at the bound is genuinely low and almost nothing piles up: a clip shows percent-at-bound
+in the whole numbers, a truncation shows hundredths.
+
+**And distinguish a real zero from a coded missing.** A spike at exactly zero means "not
+applicable" mixed into a continuous column — two populations stacked. If the column also
+carries explicit nulls, the zero is genuine; if it has none, suspect the zero *is* the
+missing code, and converting it changes every downstream statistic.
+
+---
+
+## 2026-08-28 — Unseen categorical levels
+
+A level present at predict time but absent when the encoder was fitted. Every encoder
+fails differently and none fail well: ordinal raises or substitutes a fill; one-hot
+raises or emits an all-zeros row — a pattern the model never saw in training; target
+encoding has no statistic and falls back to the global mean.
+
+Matching level sets between train and test means none of that handling has to be written,
+tested, and kept consistent across every fold and every encoder. It removes a category of
+code and a category of bug.
+
+Two distinct versions of the problem: **train vs test**, and — subtler — **inside CV**,
+where a level appears in the validation fold but not the training folds. Low cardinality
+makes both impossible; thousands of rare categories make the second one routine. The
+safety is a property of the data, never of the pipeline.
 
 ---
 
