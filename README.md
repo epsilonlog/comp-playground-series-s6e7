@@ -16,8 +16,9 @@ Training competition. The deliverable is a reusable framework, not a rank.
 
 ## Status
 
-`workflow step 3 in progress` — adversarial validation done and it found a real shift.
-Fold design is **reopened**; folds are NOT frozen.
+`workflow step 3 complete` — adversarial validation found a real shift, the shift was
+traced to a target-orthogonal direction, and the folds are **frozen** in
+`data/processed/folds.parquet`. Remaining before step 4: write the selection rule.
 
 | | |
 |---|---|
@@ -41,9 +42,20 @@ balanced accuracy.
 
 ## Validation
 
-**Fold structure:** *reopened — see below.* `StratifiedKFold(5)`, stratified on the
-target alone, was chosen on the evidence that train and test are one distribution. That
-premise did not survive adversarial validation.
+**Fold structure — frozen 2026-08-28:** `StratifiedKFold(5)`, stratified on the target
+alone, `seed=42`. `data/processed/folds.parquet` holds `id` / `fold` / `null_bucket`;
+`folds.verify()` re-derives the assignment and asserts the file still matches.
+
+Chosen *after* the adversarial result below, not in ignorance of it. The shift is real
+but sits in a direction that carries no target signal, and correcting for it — importance
+weighting, or test-like pessimistic folds — would buy a ≤0.002 correction with weights
+noisier than the thing they correct. Stratifying on the null bucket was priced at
+**0.00004** against a 0.002 fold-level SE and rejected; the bucket is carried as a
+**diagnostic slice key** instead, so every experiment can report per-slice recall.
+
+**Falsifiable consequence:** test carries more null-heavy rows than train (k ≥ 3: 4.55%
+vs 2.17%), so its rows are information-poorer. **LB should land ~0.001–0.002 below CV.**
+A gap of 0.02 means this analysis is not the explanation.
 
 **Splitter family:** `id` is unique across all 690k train and 295k test rows, so no
 repeating entity — `GroupKFold` is out. Nothing time-ordered. At 5.8% minority,
@@ -56,9 +68,15 @@ Treat +0.0008 as noise. `fit` supplies 55% of the variance — the effective sam
 
 **Adversarial validation AUC: 0.6518** (per-fold sd 0.0012, `id` excluded).
 Shuffled-label control 0.5002 (`adversarial.shuffled_control`), so the result is not a
-harness artifact. Expected ~0.5;
-it is not. See the Log entry below — the shift is in the *joint* missingness structure
-and every univariate check passes.
+harness artifact. Expected ~0.5; it is not. The shift is in the *joint* missingness
+structure and every univariate check passes. Two follow-ups located it:
+
+| run | AUC | reading |
+|---|---|---|
+| all rows, 13 features | 0.6518 | a real shift |
+| complete-case rows only (k=0) | 0.5304 | strip missingness and it mostly vanishes |
+| best single feature, complete cases | 0.5186 | `smoking_alcohol`; mild categorical drift |
+| shuffled control, complete cases | 0.4999 | not a harness artifact |
 
 **Selection rule** (written before looking at the LB): *<step 3>*
 
@@ -80,6 +98,7 @@ uv run python -c "from s6e7 import io; io.build_parquet()"
 | `src/s6e7/io.py` | frozen dtype schema, CSV→parquet cache, column roles |
 | `src/s6e7/metric.py` | balanced accuracy, tested against sklearn |
 | `src/s6e7/adversarial.py` | train-vs-test classifier — the test of the i.i.d. premise |
+| `src/s6e7/folds.py` | the frozen partition: build, verify, iterate, describe |
 | `src/s6e7/config.py` | `SEED`, `N_JOBS` |
 | `src/s6e7/eda.py` | tabular EDA summaries — frames in, frames out |
 | `src/s6e7/plots.py` | EDA plotting, **operator-owned**, stubs only so far |
@@ -93,6 +112,27 @@ uv run python -c "from s6e7 import io; io.build_parquet()"
 
 Notable findings, dead ends, and things worth remembering next competition.
 
+- **2026-08-28 — folds frozen: the shift was real and still didn't change the design.**
+  Two checks closed the question the 0.6518 opened. Re-running adversarial validation on
+  **complete-case rows only** (349,623 train / 165,084 test, no nulls at all, so the
+  classifier cannot see missingness) gives **AUC 0.5304** against a 0.4999 shuffled
+  control — strip the null pattern and the shift mostly goes with it. And
+  `p(target | n_nulls, bmi_is_null)` is **flat in the null count**: 0.0847 / 0.0851 /
+  0.0832 / 0.0889 at k = 0…3 with `bmi` present, 0.0279 / 0.0299 / 0.0311 with it null.
+  All of missingness's target signal is `bmi_is_null`, whose marginal rate is **identical
+  in both files (2.014%)**. What shifted predicts nothing. Options priced before choosing:
+  compound stratification on the null bucket buys 0.00004 against a 0.002 fold SE;
+  importance weighting and pessimistic folds correct ≤0.002 with estimated weights. Chose
+  `StratifiedKFold(5)` on the target alone and carried `null_bucket` as a diagnostic
+  column. The freeze verifies: `fit` counts 7961/7961/7961/7960/7960, k≥3 share
+  2.162–2.221% against a predicted ±0.039pp — and test's 4.564%, which no fold resembles.
+- **2026-08-28 — a covariate shift is only a fold problem if it moves the ranking.** The
+  reflex on AUC 0.65 is to redesign folds. The question that actually decides it is
+  whether test reweights a region where *models differ*. Two models tied overall but
+  differing by δ on the k≥3 slice have their gap moved by 0.0238·δ, so δ must exceed
+  **0.042** before the reweighting outruns the 0.001 resolution. The one design axis where
+  that isn't absurd is **missing-data handling** — which is exactly what the diagnostic
+  bucket is there to catch.
 - **2026-08-28 — train and test differ, and no marginal shows it.** Adversarial AUC
   **0.6518** (sd 0.0012) while every feature's *solo* adversarial AUC sits at chance
   (0.4989–0.5216). Per-column null rates match to five decimals; means within 0.006 SD;

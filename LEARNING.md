@@ -15,6 +15,7 @@ keep the worked numbers, drop the scaffolding.
 | [Reading data honestly](#2026-08-28--reading-data-honestly) | summary statistics that lie, and the five outputs of EDA |
 | [Technique](#2026-08-28--technique) | small mechanics worth not re-deriving |
 | [Joint shift](#2026-08-28--marginals-cannot-see-a-joint-shift) | 13 identical marginals, one clustered joint — why adversarial validation exists |
+| [Acting on a shift](#2026-08-28--a-shift-is-only-a-fold-problem-if-it-moves-the-ranking) | finding one is a question, not an answer — price the correction against the resolution |
 
 ---
 
@@ -505,3 +506,93 @@ differs, AUC says whether anything differs, and neither substitutes for the othe
 Exclude `id` before running: competition ids are assigned per file, so train and test
 occupy disjoint contiguous ranges (here 0–690,087 and 690,088–985,840) and one split
 separates them perfectly. AUC 1.0 that means nothing.
+
+---
+
+## 2026-08-28 — A shift is only a fold problem if it moves the ranking
+
+Adversarial validation came back 0.6518 and the reflex was: the i.i.d. premise is dead,
+redesign the folds. That reflex skips the question that actually decides it. **Finding a
+shift is a question, not an answer.** A shift only reaches the fold design if it damages
+something the folds are there to protect, and there are exactly two ways it can:
+
+- **Level bias** — CV sits systematically above (or below) the leaderboard. Affects the
+  absolute number, not which model wins. And frozen paired folds are already immune: the
+  bias is the same for every model, so it cancels out of every comparison.
+- **Ranking distortion** — test over-weights a region, models differ in that region, and
+  the model that wins on CV is not the model that wins on test. *This* is the harm worth
+  paying for.
+
+Ranking distortion needs **both** conditions. Test reweighting a region is half the
+argument; the other half is that models disagree there, and that half is usually the one
+nobody checks.
+
+### Price it before you fix it
+
+The whole thing reduces to arithmetic against the resolution you already computed.
+
+The shifted region here was rows with ≥3 nulls: 2.17% of train, 4.55% of test. Two models
+tied overall but differing by δ on that slice have the gap between them moved by
+`(0.0455 − 0.0217)·δ = 0.0238·δ`. Set that against the 0.001 resolution:
+
+    0.0238 · δ  >  0.001    →    δ > 0.042
+
+**A model would need a four-point balanced-accuracy advantage confined to 2% of the rows,
+while being otherwise tied, before the reweighting flips anything.** That is the honest
+ceiling on the harm, and it is one number.
+
+Same arithmetic kills the tempting middle option — stratifying folds on the shifted
+quantity. Per-fold share of the k≥3 bucket has SE `√(0.0217·0.978/138,018) = 0.00039`, so
+even a generous 0.10 difficulty gap moves a fold score by **0.00004** against a 0.002
+fold-level SE. Four orders below the resolution, for a compound key frozen forever. This
+is the third time that calculation has said no; it is worth reaching for by reflex.
+
+And note what stratifying would even do: it makes the folds resemble **each other**, not
+test. Variance reduction, not shift correction. Only reweighting or deliberately
+test-like folds address the shift at all — and both correct ≤0.002 using *estimated*
+weights, which is paying variance to remove a bias smaller than the instrument.
+
+### Two checks that turn "there is a shift" into "here is the shift"
+
+An AUC is one number and one number cannot tell you what to do. Both of these decompose it:
+
+**1. Strip the suspected channel and re-run.** Restricting to complete-case rows — no
+nulls at all, so the classifier physically cannot use missingness — took 0.6518 down to
+0.5304 against a 0.4999 control. That is an *ablation of the adversarial classifier*, and
+it converts a suspicion into a measurement: the shift is the null pattern, and something
+small (0.53) remains in the values. Generalises to any suspected channel — drop it,
+re-run, read the drop.
+
+**2. Ask whether the shifted quantity predicts the target.** Covariate shift only costs
+you where p(y|x) has structure. Conditioning on the one informative indicator:
+
+    p(unhealthy | n_nulls, bmi_null)      k=0      k=1      k=2      k=3
+      bmi present                       0.0847   0.0851   0.0832   0.0889
+      bmi null                            —      0.0279   0.0299   0.0311
+
+Flat in k inside each row, every deviation within 1–2 SE. So the null *count* carries no
+signal beyond the `bmi` indicator — and that indicator's marginal rate is identical in
+both files to four decimals (2.014%). **The quantity that shifted predicts nothing; the
+quantity that predicts didn't shift.** That sentence is what closed the decision, and no
+amount of staring at the 0.6518 would have produced it.
+
+### What to do instead of redesigning
+
+Two things, neither of which touches the splitter:
+
+**Carry the shifted quantity as a diagnostic slice key.** Not a stratification key — a
+column frozen alongside the folds, so every experiment can report per-slice recall for
+free. It costs one column and it is what would catch this reasoning being wrong. Name the
+case where it could be: here, a comparison of *missing-data handling* is the one design
+axis a missingness shift could plausibly mis-rank, so that is the experiment to watch.
+
+**Write down the falsifiable consequence.** Test rows carry more nulls, so they are
+information-poorer, so **LB should land ~0.001–0.002 below CV**. Committing to the sign
+and the magnitude in advance is what makes the first submission informative: a 0.02 gap
+then means something is wrong that this analysis does not explain. Without the prediction
+it is just a number you have no opinion about — the same move as predicting `cv_std ≈
+0.002` before the first run.
+
+**The general shape: a diagnostic that changes no decision has told you something.** The
+negative result cost two checks and bought a design you can defend, which is worth more
+than the same design chosen by not looking.
