@@ -224,6 +224,16 @@ on frozen folds resolves smaller differences than either absolute score can. Reg
 folds discards that cancellation and leaves two independently wobbling numbers — the real
 cost of the anti-pattern, quite apart from ledger comparability.
 
+**Deterministic is not the same as frozen, and the gap is the whole point.** A seeded
+splitter over unchanged data reproduces the identical partition every run, so writing it
+to a file looks redundant. It isn't: determinism is conditional on inputs that are not
+themselves pinned. Change the seed, change the fold count, add a row, or re-download the
+source in a different row order, and you get a *different* partition with no error and no
+warning — every previously logged score silently becomes incomparable. Persisting the
+assignment turns that from an invisible event into a detectable one. And **re-deriving it
+and comparing beats recording the config alongside it**, because a stored config only
+confirms what the writer *claimed*; re-deriving checks the thing itself.
+
 ### Stratification is variance reduction, not correctness
 
 Random dealing gives each fold *approximately* 20% of each class; stratifying makes it
