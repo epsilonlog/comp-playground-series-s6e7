@@ -71,8 +71,7 @@ docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.12"
-# Add "tests" here once it contains modules; mypy errors on an empty directory.
-files = ["src"]
+files = ["src", "tests"]
 strict = true
 warn_unreachable = true
 warn_return_any = true
