@@ -104,6 +104,8 @@ uv run python -c "from s6e7 import io; io.build_parquet()"
 | `src/s6e7/plots.py` | EDA plotting, **operator-owned**, stubs only so far |
 | `notebooks/01_eda.ipynb` | EDA steps 1–7, display only |
 | `notebooks/02_train_test_shift.ipynb` | marginals, joint missingness, adversarial validation |
+| `notebooks/03_folds.ipynb` | locating the shift, pricing it, freezing the partition |
+| `data/processed/folds.parquet` | **the frozen partition** — `id` / `fold` / `null_bucket` |
 | `oof/` | out-of-fold predictions, `exp_XXXX.npy` |
 | `experiments.csv` | append-only ledger |
 | `LEARNING.md` | concepts, not code — the transferable part |

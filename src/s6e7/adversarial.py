@@ -28,6 +28,7 @@ design. No competition model is built here and nothing it produces is submitted.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
@@ -231,6 +232,82 @@ def solo_auc(
             oof[val_idx] = np.asarray(model.predict_proba(X[[col]].iloc[val_idx]))[:, 1]
         rows.append({"feature": col, "solo_auc": float(roc_auc_score(y, oof))})
     return pl.DataFrame(rows).sort("solo_auc", descending=True)
+
+
+def complete_cases(
+    df: pl.DataFrame,
+    features: Sequence[str] = io.FEATURE_COLS,
+) -> pl.DataFrame:
+    """Rows carrying no nulls at all across `features`."""
+    return df.filter(pl.sum_horizontal(pl.col(c).is_null() for c in features) == 0)
+
+
+def missingness_ablation(
+    train: pl.DataFrame | None = None,
+    test: pl.DataFrame | None = None,
+    *,
+    features: tuple[str, ...] = io.FEATURE_COLS,
+    n_splits: int = 5,
+    seed: int = SEED,
+    sample_frac: float | None = None,
+) -> pl.DataFrame:
+    """Re-run the classifier with missingness removed, and read the drop.
+
+    Decision: **where does the shift live?** A headline AUC is one number, and one number
+    cannot tell you what to do about it. Restricting to complete-case rows takes an entire
+    channel away — those rows carry no nulls, so the classifier physically cannot use the
+    missingness pattern. Whatever AUC survives is the shift in the observed *values*, and
+    the gap between the two rows is the part that was missingness all along.
+
+    The same move works for any suspected channel: drop it, re-run, read the drop. This
+    one is specialised to missingness because that is what `null_count_profile` implicated.
+
+    The control row re-runs the restricted comparison with the labels shuffled. It matters
+    more here than on the full data: filtering to complete cases changes both sample sizes
+    and can only be trusted once you have shown the restricted harness still reads chance
+    as chance.
+
+    Roughly two minutes on full data. `solo_auc(complete_cases(train), complete_cases(test))`
+    is the natural follow-up when the restricted AUC is not ~0.5 — it says which columns.
+    """
+    train = io.load_train() if train is None else train
+    test = io.load_test() if test is None else test
+    if sample_frac is not None:
+        train = train.sample(fraction=sample_frac, seed=seed)
+        test = test.sample(fraction=sample_frac, seed=seed)
+
+    full = run(train, test, features=features, n_splits=n_splits, seed=seed)
+    intact_train, intact_test = complete_cases(train, features), complete_cases(test, features)
+    stripped = run(intact_train, intact_test, features=features, n_splits=n_splits, seed=seed)
+    control = shuffled_control(
+        intact_train, intact_test, features=features, n_splits=n_splits, seed=seed
+    )
+
+    return pl.DataFrame(
+        [
+            {
+                "run": "all rows",
+                "n_train": full.n_train,
+                "n_test": full.n_test,
+                "auc": round(full.auc, 4),
+                "auc_sd": round(full.auc_std, 4),
+            },
+            {
+                "run": "complete cases",
+                "n_train": stripped.n_train,
+                "n_test": stripped.n_test,
+                "auc": round(stripped.auc, 4),
+                "auc_sd": round(stripped.auc_std, 4),
+            },
+            {
+                "run": "complete cases, shuffled control",
+                "n_train": stripped.n_train,
+                "n_test": stripped.n_test,
+                "auc": round(control, 4),
+                "auc_sd": None,
+            },
+        ]
+    )
 
 
 def shuffled_control(

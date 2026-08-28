@@ -570,6 +570,56 @@ def missingness_dispersion(
     )
 
 
+def null_count_vs_target(
+    df: pl.DataFrame,
+    cols: Sequence[str],
+    target: str,
+    *,
+    split_on: str | None = None,
+    min_rows: int = 100,
+) -> pl.DataFrame:
+    """Target rates by per-row null count, optionally split by one column's own nullity.
+
+    Decision: **does a shift in the missingness pattern cost anything?** A train/test
+    difference in the per-row null count only matters if that count predicts the target.
+    If the rates are flat in `n_nulls`, what shifted carries no signal and the fold design
+    does not have to answer for it.
+
+    `split_on` is what turns a suspicion into an answer. A single informative null
+    indicator will bend the unsplit rates all on its own, and the bend looks exactly like
+    the null *count* mattering. Split on that indicator and the two readings separate:
+    rates flat **within** each half mean the count adds nothing beyond the indicator.
+
+    `se_*` is the binomial standard error of the rate in the same percentage units — a
+    deviation to compare against, so "flat" is a measurement rather than an impression.
+    Buckets thinner than `min_rows` are dropped; below that the error bar is wider than
+    any effect worth reading.
+    """
+    classes = _classes(df, target)
+    counts = _null_count(df, cols)
+    y = df[target].to_numpy()
+
+    groups: list[tuple[str, np.ndarray]] = [("all", np.ones(df.height, dtype=bool))]
+    if split_on is not None:
+        is_null = df[split_on].is_null().to_numpy()
+        groups = [(f"{split_on} present", ~is_null), (f"{split_on} null", is_null)]
+
+    rows = []
+    for label, mask in groups:
+        for k in range(int(counts.max()) + 1):
+            selected = mask & (counts == k)
+            n = int(selected.sum())
+            if n < min_rows:
+                continue
+            row: dict[str, Any] = {"split": label, "n_nulls": k, "n_rows": n}
+            for cls in classes:
+                p = float((y[selected] == cls).mean())
+                row[f"pct_{cls}"] = round(100.0 * p, 3)
+                row[f"se_{cls}"] = round(100.0 * sqrt(p * (1.0 - p) / n), 3)
+            rows.append(row)
+    return pl.DataFrame(rows)
+
+
 def shift_power(
     n_rows: int,
     *,

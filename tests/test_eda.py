@@ -11,6 +11,7 @@ from s6e7.eda import (
     level_target_rates,
     missing_cooccurrence,
     missing_vs_target,
+    null_count_vs_target,
     numeric_correlation,
     numeric_summary,
     overview,
@@ -298,3 +299,46 @@ def test_correlation_drops_nulls_pairwise() -> None:
 def test_correlation_returns_all_pairs() -> None:
     df = pl.DataFrame({"a": [1.0, 2.0], "b": [2.0, 1.0], "c": [1.0, 3.0], "d": [4.0, 1.0]})
     assert numeric_correlation(df, ["a", "b", "c", "d"]).height == 6
+
+
+def _null_frame() -> pl.DataFrame:
+    """20 rows: `a` null on the first 8, `b` on the first 4, so null counts run 2,2,2,2,1,1,1,1,0..."""
+    return pl.DataFrame(
+        {
+            "a": [None] * 8 + list(range(12)),
+            "b": [None] * 4 + list(range(16)),
+            "y": ["hit", "miss"] * 10,
+        }
+    )
+
+
+def test_null_count_vs_target_buckets_by_row_null_count() -> None:
+    out = null_count_vs_target(_null_frame(), ["a", "b"], "y", min_rows=1)
+    assert out["split"].unique().to_list() == ["all"]
+    assert out["n_nulls"].to_list() == [0, 1, 2]
+    assert out["n_rows"].to_list() == [12, 4, 4]
+
+
+def test_null_count_vs_target_reports_rate_and_binomial_se() -> None:
+    row = null_count_vs_target(_null_frame(), ["a", "b"], "y", min_rows=1).row(1, named=True)
+    assert row["pct_hit"] == 50.0
+    # 100 * sqrt(0.5 * 0.5 / 4) = 25.0
+    assert row["se_hit"] == 25.0
+
+
+def test_null_count_vs_target_drops_thin_buckets() -> None:
+    """Below min_rows the error bar is wider than any effect worth reading."""
+    out = null_count_vs_target(_null_frame(), ["a", "b"], "y", min_rows=5)
+    assert out["n_nulls"].to_list() == [0]
+
+
+def test_null_count_vs_target_splits_on_one_columns_nullity() -> None:
+    """The trap this guards: one informative indicator bending the unsplit rates on its own."""
+    out = null_count_vs_target(_null_frame(), ["a", "b"], "y", split_on="a", min_rows=1)
+    assert out["split"].unique(maintain_order=True).to_list() == ["a present", "a null"]
+    present = out.filter(pl.col("split") == "a present")
+    assert present["n_nulls"].to_list() == [0]
+    assert present["n_rows"].to_list() == [12]
+    absent = out.filter(pl.col("split") == "a null")
+    assert absent["n_nulls"].to_list() == [1, 2]
+    assert absent["n_rows"].to_list() == [4, 4]
