@@ -14,6 +14,7 @@ keep the worked numbers, drop the scaffolding.
 | [Trees](#2026-08-28--what-trees-can-and-cannot-do) | what a split can express, and the three things it can never find |
 | [Reading data honestly](#2026-08-28--reading-data-honestly) | summary statistics that lie, and the five outputs of EDA |
 | [Technique](#2026-08-28--technique) | small mechanics worth not re-deriving |
+| [Joint shift](#2026-08-28--marginals-cannot-see-a-joint-shift) | 13 identical marginals, one clustered joint — why adversarial validation exists |
 
 ---
 
@@ -440,3 +441,67 @@ arithmetic as "row *r*, column *c* of a grid *w* wide is cell `r·w + c`". Count
 integers, reshape to *n × n*, and the matrix falls out with no Python loop. A Python loop
 over 690k rows is about a second; the decision-rule search calls this hundreds of times.
 Generalises to any counting of combinations of small-cardinality integers.
+
+---
+
+## 2026-08-28 — Marginals cannot see a joint shift
+
+Adversarial validation: throw away the real target, label every row by which *file* it
+came from, and try to classify that. AUC ≈ 0.5 means nothing distinguishes train from
+test, which is the licence to use random folds. It converts "are these two 986,000-row
+13-dimensional distributions the same?" into "what's the AUC?" — a question you already
+have tools for.
+
+**I argued it was probably unnecessary here, and the data said otherwise.** Every
+univariate check passed, spectacularly:
+
+    per-column null rates    identical to FIVE decimal places (11.01294 vs 11.01291)
+    numeric means            gaps ≤ 0.006 SD
+    quantiles                matching to three decimals
+    largest Spearman diff    0.006
+    solo adversarial AUC     0.4989 – 0.5216 — every one of the 13 at chance
+
+    all 13 features together → AUC 0.6518, per-fold sd 0.0012
+
+The shift was in the **number of nulls per row**:
+
+    nulls/row      independence    train      test
+      0                50.7578    50.6635   55.8182
+      1                35.8686    35.9569   29.0293
+      4                 0.2314     0.2143    0.8548
+    mean                 0.6514     0.6514    0.6514    ← identical
+    variance             0.6012     0.5967    0.7916    ← test +32%
+
+Train's nulls are drawn independently per column; test's **co-occur**. Same rates, same
+mean, clustered instead of scattered.
+
+**Why no plot could have found it.** The shifted quantity is a property of a *row*, not a
+*column*. Each of the 13 marginal plots integrates over the other 12 — which is exactly
+where the information lives. **You can plot 13 marginals; you cannot plot a
+13-dimensional joint.** Adversarial validation is a *search* over the joint, and it is the
+only tool that scales past two or three dimensions.
+
+**But it is bad at the question plots are good at — its importances lied.**
+
+    water_intake          gain 32.34%   solo AUC 0.4990   ← ranked 1st, at chance
+    gender                gain  2.61%   solo AUC 0.5216   ← ranked 8th, most shifted
+
+Gain counts how much a feature helped *split*, and a continuous column with 12,000
+distinct values offers vastly more split points than a 3-level categorical. Here the
+ranking was close to **anti-correlated** with real univariate shift. Taking it at face
+value sends you hunting in the wrong column. The division of labour: **plots say what
+differs, AUC says whether anything differs, and neither substitutes for the other.**
+
+**Two controls that made the result trustworthy**, both cheap, both worth making routine:
+
+- **Shuffle the labels and re-run.** Got 0.4993, so the 0.6518 is not a harness bug. A
+  positive adversarial result without this control is an unverified claim.
+- **Compare the observed joint against its independence baseline.** Convolving the 13
+  per-column null probabilities gives the null-count distribution you'd see if they were
+  independent. Train landed on it (50.76 predicted, 50.66 observed); test did not. Same
+  reasoning as "equal counts are not evidence of a shared mask" — **only the joint
+  distinguishes the two stories, and you need the baseline to read it.**
+
+Exclude `id` before running: competition ids are assigned per file, so train and test
+occupy disjoint contiguous ranges (here 0–690,087 and 690,088–985,840) and one split
+separates them perfectly. AUC 1.0 that means nothing.

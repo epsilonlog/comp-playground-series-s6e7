@@ -16,8 +16,8 @@ Training competition. The deliverable is a reusable framework, not a rank.
 
 ## Status
 
-`workflow step 2 complete` — metric reimplemented and tested, EDA done. Step 3 (CV
-harness, adversarial validation, freeze folds) is next.
+`workflow step 3 in progress` — adversarial validation done and it found a real shift.
+Fold design is **reopened**; folds are NOT frozen.
 
 | | |
 |---|---|
@@ -41,14 +41,23 @@ balanced accuracy.
 
 ## Validation
 
-**Fold structure:** *<decided at step 3>* — evidence points to `StratifiedKFold(5)`.
+**Fold structure:** *reopened — see below.* `StratifiedKFold(5)`, stratified on the
+target alone, was chosen on the evidence that train and test are one distribution. That
+premise did not survive adversarial validation.
 
-**Why:** `id` is unique across all 690k train and 295k test rows, so no repeating entity.
-Nothing time-ordered. Null rates are identical between train and test to two decimals on
-all 13 features, so the two sets look like draws from one generator. At 5.8% minority,
-stratification is required: 5 folds gives ~7,960 `fit` rows each.
+**Splitter family:** `id` is unique across all 690k train and 295k test rows, so no
+repeating entity — `GroupKFold` is out. Nothing time-ordered. At 5.8% minority,
+stratification is required regardless: 5 folds gives ~7,960 `fit` rows each.
 
-**Adversarial validation AUC:** *<step 3>* — expected near 0.5.
+**Measurement resolution** (computed before the first run, so it can be falsified):
+per-fold `SE(balanced accuracy) ≈ 0.0023`, `SE(cv_mean) ≈ 0.001`. Expect `cv_std ≈ 0.002`.
+Treat +0.0008 as noise. `fit` supplies 55% of the variance — the effective sample size is
+~40k rows, not 690k.
+
+**Adversarial validation AUC: 0.6518** (per-fold sd 0.0012, `id` excluded).
+Shuffled-label control 0.4993, so the result is not a harness artifact. Expected ~0.5;
+it is not. See the Log entry below — the shift is in the *joint* missingness structure
+and every univariate check passes.
 
 **Selection rule** (written before looking at the LB): *<step 3>*
 
@@ -69,6 +78,8 @@ uv run python -c "from s6e7 import io; io.build_parquet()"
 | `configs/` | one YAML per experiment, immutable once run |
 | `src/s6e7/io.py` | frozen dtype schema, CSV→parquet cache, column roles |
 | `src/s6e7/metric.py` | balanced accuracy, tested against sklearn |
+| `src/s6e7/adversarial.py` | train-vs-test classifier — the test of the i.i.d. premise |
+| `src/s6e7/config.py` | `SEED`, `N_JOBS` |
 | `src/s6e7/eda.py` | tabular EDA summaries — frames in, frames out |
 | `src/s6e7/plots.py` | EDA plotting, **operator-owned**, stubs only so far |
 | `notebooks/01_eda.ipynb` | EDA steps 1–7, display only |
@@ -80,6 +91,19 @@ uv run python -c "from s6e7 import io; io.build_parquet()"
 
 Notable findings, dead ends, and things worth remembering next competition.
 
+- **2026-08-28 — train and test differ, and no marginal shows it.** Adversarial AUC
+  **0.6518** (sd 0.0012) while every feature's *solo* adversarial AUC sits at chance
+  (0.4989–0.5216). Per-column null rates match to five decimals; means within 0.006 SD;
+  largest Spearman difference 0.006. The shift is the **number of nulls per row**: train
+  matches the column-independence baseline (50.76% predicted / 50.66% observed with zero
+  nulls, variance 0.5967 vs 0.6012), test does not (55.82% with zero nulls, variance
+  0.7916 — **32% overdispersed**, same mean 0.6514). Train's nulls are drawn
+  independently per column; test's co-occur. Fold design is reopened.
+- **2026-08-28 — adversarial gain importances misled here.** `water_intake` ranked first
+  at 32.3% gain with a solo AUC of 0.4990; `gender` ranked eighth at 2.6% gain and is the
+  most-shifted single column (solo AUC 0.5216). Gain rewards split opportunities, and a
+  12,000-value continuous column has vastly more than a 3-level categorical. Read the AUC
+  first and never take the importance ranking as a shift ranking.
 - **2026-08-28 — `stress_level` is a gate on the minority classes.** `fit` lives almost
   only at `low` (p=0.2006 vs 0.003 elsewhere); `unhealthy` almost only at `high`
   (p=0.2787 vs 0.003). `medium` is 99.4% `at-risk`. 84.5% of all `fit` rows are at `low`;
