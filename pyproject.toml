@@ -86,6 +86,7 @@ module = [
     "catboost.*",
     "lightgbm.*",
     "optuna.*",
+    "pandas.*",
     "sklearn.*",
     "xgboost.*",
 ]

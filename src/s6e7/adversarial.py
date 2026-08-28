@@ -165,23 +165,20 @@ def run(
     for fit_idx, val_idx in splitter.split(X, y):
         model = lgb.LGBMClassifier(**(params or DEFAULT_PARAMS))
         model.fit(X.iloc[fit_idx], y[fit_idx])
-        oof[val_idx] = model.predict_proba(X.iloc[val_idx])[:, 1]
+        oof[val_idx] = np.asarray(model.predict_proba(X.iloc[val_idx]))[:, 1]
         fold_aucs.append(float(roc_auc_score(y[val_idx], oof[val_idx])))
         gains += model.booster_.feature_importance(importance_type="gain")
         splits += model.booster_.feature_importance(importance_type="split")
 
     total = gains.sum()
-    importance = (
-        pl.DataFrame(
-            {
-                "feature": list(features),
-                "gain": gains,
-                "gain_pct": 100.0 * gains / total if total else np.zeros_like(gains),
-                "split": splits.astype(np.int64),
-            }
-        )
-        .sort("gain", descending=True)
-    )
+    importance = pl.DataFrame(
+        {
+            "feature": list(features),
+            "gain": gains,
+            "gain_pct": 100.0 * gains / total if total else np.zeros_like(gains),
+            "split": splits.astype(np.int64),
+        }
+    ).sort("gain", descending=True)
 
     return AdversarialResult(
         auc=float(roc_auc_score(y, oof)),
@@ -192,3 +189,81 @@ def run(
         n_test=test.height,
         features=tuple(features),
     )
+
+
+def solo_auc(
+    train: pl.DataFrame | None = None,
+    test: pl.DataFrame | None = None,
+    *,
+    features: tuple[str, ...] = io.FEATURE_COLS,
+    n_splits: int = 3,
+    seed: int = SEED,
+    sample_frac: float | None = None,
+) -> pl.DataFrame:
+    """Adversarial AUC of each feature **on its own**, strongest first.
+
+    This is the reading the gain importances cannot give you. Gain rewards a feature for
+    how much it helped *split*, so a continuous column with thousands of distinct values
+    outranks a 3-level categorical whatever the truth is. A solo AUC is that feature's
+    actual power to tell train from test, on the same scale as the joint AUC.
+
+    The gap between the best solo AUC and the joint AUC is the part of the shift that no
+    single column carries — the part only a joint search can find.
+    """
+    train = io.load_train() if train is None else train
+    test = io.load_test() if test is None else test
+    if sample_frac is not None:
+        train = train.sample(fraction=sample_frac, seed=seed)
+        test = test.sample(fraction=sample_frac, seed=seed)
+
+    import lightgbm as lgb
+
+    X, y = build_matrix(train, test, features)
+    params = dict(DEFAULT_PARAMS, n_estimators=120, num_leaves=31, random_state=seed)
+    splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+
+    rows = []
+    for col in features:
+        oof = np.zeros(len(y), dtype=np.float64)
+        for fit_idx, val_idx in splitter.split(X, y):
+            model = lgb.LGBMClassifier(**params)
+            model.fit(X[[col]].iloc[fit_idx], y[fit_idx])
+            oof[val_idx] = np.asarray(model.predict_proba(X[[col]].iloc[val_idx]))[:, 1]
+        rows.append({"feature": col, "solo_auc": float(roc_auc_score(y, oof))})
+    return pl.DataFrame(rows).sort("solo_auc", descending=True)
+
+
+def shuffled_control(
+    train: pl.DataFrame | None = None,
+    test: pl.DataFrame | None = None,
+    *,
+    features: tuple[str, ...] = io.FEATURE_COLS,
+    n_splits: int = 5,
+    seed: int = SEED,
+    sample_frac: float | None = None,
+) -> float:
+    """Re-run the classifier with the is-test label shuffled. Must return ~0.5.
+
+    A positive adversarial result is a claim about the data; this is what stops it being
+    a claim about the harness. Any bug that leaks the label — a misaligned concat, a
+    row-order assumption, an index mismatch — survives shuffling and shows up here as an
+    AUC above chance. Run it whenever the headline AUC is not ~0.5.
+    """
+    train = io.load_train() if train is None else train
+    test = io.load_test() if test is None else test
+    if sample_frac is not None:
+        train = train.sample(fraction=sample_frac, seed=seed)
+        test = test.sample(fraction=sample_frac, seed=seed)
+
+    import lightgbm as lgb
+
+    X, y = build_matrix(train, test, features)
+    y_shuffled = np.random.default_rng(seed).permutation(y)
+    oof = np.zeros(len(y_shuffled), dtype=np.float64)
+    for fit_idx, val_idx in StratifiedKFold(
+        n_splits=n_splits, shuffle=True, random_state=seed
+    ).split(X, y_shuffled):
+        model = lgb.LGBMClassifier(**DEFAULT_PARAMS)
+        model.fit(X.iloc[fit_idx], y_shuffled[fit_idx])
+        oof[val_idx] = np.asarray(model.predict_proba(X.iloc[val_idx]))[:, 1]
+    return float(roc_auc_score(y_shuffled, oof))

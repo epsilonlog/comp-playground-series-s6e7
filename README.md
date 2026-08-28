@@ -55,7 +55,8 @@ Treat +0.0008 as noise. `fit` supplies 55% of the variance — the effective sam
 ~40k rows, not 690k.
 
 **Adversarial validation AUC: 0.6518** (per-fold sd 0.0012, `id` excluded).
-Shuffled-label control 0.4993, so the result is not a harness artifact. Expected ~0.5;
+Shuffled-label control 0.5002 (`adversarial.shuffled_control`), so the result is not a
+harness artifact. Expected ~0.5;
 it is not. See the Log entry below — the shift is in the *joint* missingness structure
 and every univariate check passes.
 
@@ -83,6 +84,7 @@ uv run python -c "from s6e7 import io; io.build_parquet()"
 | `src/s6e7/eda.py` | tabular EDA summaries — frames in, frames out |
 | `src/s6e7/plots.py` | EDA plotting, **operator-owned**, stubs only so far |
 | `notebooks/01_eda.ipynb` | EDA steps 1–7, display only |
+| `notebooks/02_train_test_shift.ipynb` | marginals, joint missingness, adversarial validation |
 | `oof/` | out-of-fold predictions, `exp_XXXX.npy` |
 | `experiments.csv` | append-only ledger |
 | `LEARNING.md` | concepts, not code — the transferable part |

@@ -363,3 +363,208 @@ def numeric_correlation(
             }
         )
     return pl.DataFrame(records).sort("abs", descending=True, nulls_last=True)
+
+
+def _agg_float(value: object) -> float:
+    """A polars aggregation as a plain float, with null as 0.0.
+
+    `Series.mean()` is typed as returning a union that includes `timedelta`, because it is
+    valid on temporal columns. Callers here only pass numeric columns, so narrowing is
+    safe — and stating it once beats a `cast` at every call site.
+    """
+    return 0.0 if value is None else float(cast(float, value))
+
+
+def _chi2_sf(chi2: float, dof: int) -> float:
+    """Upper tail of the chi-square distribution, Wilson-Hilferty approximation.
+
+    Cubing the reduced chi-square makes it near-normal. Accurate to a few parts in 10^4
+    for the dof used here, and keeps this module free of a scipy dependency.
+    """
+    if dof <= 0:
+        return float("nan")
+    reduced = (chi2 / dof) ** (1.0 / 3.0)
+    mean = 1.0 - 2.0 / (9.0 * dof)
+    sd = sqrt(2.0 / (9.0 * dof))
+    return 1.0 - _normal_cdf((reduced - mean) / sd)
+
+
+def numeric_shift(
+    train: pl.DataFrame,
+    test: pl.DataFrame,
+    cols: Sequence[str],
+    *,
+    n_bins: int = 50,
+) -> pl.DataFrame:
+    """Compare each numeric column's distribution in train against test.
+
+    Decision: does any single feature differ between the two files, and if so which?
+
+    ``gap_sd`` states the mean difference in the column's own standard deviations, so
+    columns in different units are comparable. ``sd_ratio`` catches a spread difference
+    that leaves the mean untouched.
+
+    ``chi2`` / ``p_value`` bin the *combined* values into ``n_bins`` quantile bins and ask
+    whether each bin holds its expected share of test rows. That catches a non-monotone
+    shift — a hole in the middle, a fatter left tail — which means and quantiles both miss.
+    ``max_bin_dev`` is the largest absolute departure from the global test share, and is
+    the number to read when n is large enough to make every p-value significant.
+
+    Nulls are dropped per column; ``null_gap`` compares the rates separately.
+
+    **A clean row here is weak evidence.** Marginals cannot see a shift that lives in the
+    joint distribution — see `null_count_profile` and `adversarial.run`.
+    """
+    n_test_share = test.height / (train.height + test.height)
+    rows = []
+    for col in cols:
+        a = train[col].drop_nulls().to_numpy()
+        b = test[col].drop_nulls().to_numpy()
+        edges = np.unique(np.quantile(np.concatenate([a, b]), np.linspace(0.0, 1.0, n_bins + 1)))
+        count_a = np.histogram(a, bins=edges)[0]
+        count_b = np.histogram(b, bins=edges)[0]
+        total = count_a + count_b
+        keep = total > 0
+        share_b = len(b) / (len(a) + len(b))
+        expected_b = total[keep] * share_b
+        expected_a = total[keep] - expected_b
+        chi2 = float(
+            ((count_a[keep] - expected_a) ** 2 / expected_a).sum()
+            + ((count_b[keep] - expected_b) ** 2 / expected_b).sum()
+        )
+        dof = int(keep.sum()) - 1
+        mean_train, sd_train = _agg_float(train[col].mean()), _agg_float(train[col].std())
+        mean_test, sd_test = _agg_float(test[col].mean()), _agg_float(test[col].std())
+        null_train = 100.0 * train[col].null_count() / train.height
+        null_test = 100.0 * test[col].null_count() / test.height
+        rows.append(
+            {
+                "column": col,
+                "train_mean": mean_train,
+                "test_mean": mean_test,
+                "gap_sd": (mean_test - mean_train) / sd_train if sd_train else 0.0,
+                "sd_ratio": (sd_test / sd_train) if sd_train else 0.0,
+                "train_null_pct": null_train,
+                "test_null_pct": null_test,
+                "null_gap": null_test - null_train,
+                "chi2": chi2,
+                "dof": dof,
+                "p_value": _chi2_sf(chi2, dof),
+                "max_bin_dev": float(np.abs(count_b[keep] / total[keep] - n_test_share).max()),
+            }
+        )
+    return pl.DataFrame(rows).sort("max_bin_dev", descending=True)
+
+
+def category_shift(
+    train: pl.DataFrame,
+    test: pl.DataFrame,
+    cols: Sequence[str],
+) -> pl.DataFrame:
+    """Level proportions in train against test, largest disagreement first.
+
+    Decision: has any category's share moved between the two files?
+
+    Proportions are of *all* rows, so nulls appear as their own level and the shares in
+    each column sum to 100. Levels are collected from the union of both frames, so a
+    level present in only one side shows as 0.00 on the other rather than vanishing.
+    """
+    rows = []
+    for col in cols:
+        levels = set(train[col].unique().to_list()) | set(test[col].unique().to_list())
+        counts_train = dict(train[col].value_counts().iter_rows())
+        counts_test = dict(test[col].value_counts().iter_rows())
+        for level in sorted(levels, key=lambda x: _level_sort_key(x, None)):
+            pct_train = 100.0 * counts_train.get(level, 0) / train.height
+            pct_test = 100.0 * counts_test.get(level, 0) / test.height
+            rows.append(
+                {
+                    "column": col,
+                    "level": NULL_LABEL if level is None else str(level),
+                    "train_pct": pct_train,
+                    "test_pct": pct_test,
+                    "diff": pct_test - pct_train,
+                }
+            )
+    return (
+        pl.DataFrame(rows)
+        .with_columns(pl.col("diff").abs().alias("abs_diff"))
+        .sort("abs_diff", descending=True)
+    )
+
+
+def _null_count(df: pl.DataFrame, cols: Sequence[str]) -> np.ndarray:
+    expr = pl.sum_horizontal(pl.col(c).is_null() for c in cols)
+    return df.select(expr.alias("k"))["k"].to_numpy()
+
+
+def _independent_null_pmf(rates: np.ndarray) -> np.ndarray:
+    """Poisson-binomial pmf: how many nulls a row would carry if columns were independent.
+
+    Convolving ``[1-p, p]`` over the columns multiplies out every combination — the same
+    thing as enumerating 2**n masks, in n steps instead of 2**n.
+    """
+    pmf = np.array([1.0])
+    for p in rates:
+        pmf = np.convolve(pmf, [1.0 - p, p])
+    return pmf
+
+
+def null_count_profile(
+    train: pl.DataFrame,
+    test: pl.DataFrame,
+    cols: Sequence[str],
+) -> pl.DataFrame:
+    """Distribution of the number of nulls *per row*, against the independence baseline.
+
+    Decision: do nulls land independently across columns, or do they clump on the same
+    rows? Per-column null rates cannot answer this — two files can agree on every column
+    to five decimal places and still differ here, because this is a property of a **row**
+    and every per-column summary integrates the rows away.
+
+    The baseline is built from *train's* per-column rates, so ``independent_pct`` is what
+    train itself would produce if its columns were independent. Compare all three columns:
+    a file sitting on the baseline draws nulls independently, one departing from it does
+    not.
+    """
+    rates = np.array([train[c].null_count() / train.height for c in cols])
+    pmf = _independent_null_pmf(rates)
+    k_train = _null_count(train, cols)
+    k_test = _null_count(test, cols)
+    highest = int(max(k_train.max(), k_test.max(), np.flatnonzero(pmf > 1e-9).max()))
+    return pl.DataFrame(
+        [
+            {
+                "n_nulls": k,
+                "independent_pct": 100.0 * (pmf[k] if k < len(pmf) else 0.0),
+                "train_pct": 100.0 * float((k_train == k).mean()),
+                "test_pct": 100.0 * float((k_test == k).mean()),
+                "test_minus_independent": 100.0
+                * (float((k_test == k).mean()) - (pmf[k] if k < len(pmf) else 0.0)),
+            }
+            for k in range(highest + 1)
+        ]
+    )
+
+
+def missingness_dispersion(
+    train: pl.DataFrame,
+    test: pl.DataFrame,
+    cols: Sequence[str],
+) -> pl.DataFrame:
+    """Mean and variance of the per-row null count, beside the independence prediction.
+
+    Decision: the one-line verdict behind `null_count_profile`. Independent draws give
+    ``variance = sum p(1-p)``. Equal means with an inflated variance is the signature of
+    **clustered** missingness: the same number of nulls overall, concentrated on fewer
+    rows.
+    """
+    rates = np.array([train[c].null_count() / train.height for c in cols])
+    predicted_var = float((rates * (1.0 - rates)).sum())
+    rows = [{"source": "independent", "mean": float(rates.sum()), "variance": predicted_var}]
+    for name, frame in (("train", train), ("test", test)):
+        k = _null_count(frame, cols)
+        rows.append({"source": name, "mean": float(k.mean()), "variance": float(k.var())})
+    return pl.DataFrame(rows).with_columns(
+        (pl.col("variance") / predicted_var).alias("var_vs_independent")
+    )

@@ -494,7 +494,7 @@ differs, AUC says whether anything differs, and neither substitutes for the othe
 
 **Two controls that made the result trustworthy**, both cheap, both worth making routine:
 
-- **Shuffle the labels and re-run.** Got 0.4993, so the 0.6518 is not a harness bug. A
+- **Shuffle the labels and re-run.** Got 0.5002, so the 0.6518 is not a harness bug. A
   positive adversarial result without this control is an unverified claim.
 - **Compare the observed joint against its independence baseline.** Convolving the 13
   per-column null probabilities gives the null-count distribution you'd see if they were
