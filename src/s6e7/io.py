@@ -47,6 +47,21 @@ CATEGORICAL_COLS: Final[tuple[str, ...]] = (
 
 FEATURE_COLS: Final[tuple[str, ...]] = NUMERIC_COLS + CATEGORICAL_COLS
 
+# Declared semantic order for the columns judged ordinal. Alphabetical order is wrong
+# for every one of them ("high, low, medium"), so the order has to be stated by hand.
+#
+# This is a MODELLING JUDGEMENT, not a fact about the data — edit it freely. Whether the
+# target actually respects these orderings is what `eda.level_target_rates` measures.
+ORDINAL_LEVELS: Final[dict[str, tuple[str, ...]]] = {
+    "stress_level": ("low", "medium", "high"),
+    "sleep_quality": ("poor", "average", "good"),
+    "physical_activity_level": ("sedentary", "moderate", "active"),
+    "smoking_alcohol": ("no", "occasional", "yes"),
+}
+
+ORDINAL_COLS: Final[tuple[str, ...]] = tuple(ORDINAL_LEVELS)
+NOMINAL_COLS: Final[tuple[str, ...]] = ("diet_type", "gender")
+
 SCHEMA: Final[dict[str, pl.DataType]] = {
     ID: pl.UInt32(),
     TARGET: pl.String(),

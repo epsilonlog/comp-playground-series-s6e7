@@ -10,9 +10,28 @@ outside a fold (CLAUDE.md rule 3 governs *learned* transforms, not description).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from itertools import combinations
+from typing import Any, cast
 
+import numpy as np
 import polars as pl
+
+NULL_LABEL = "<null>"
+
+
+def _classes(df: pl.DataFrame, target: str) -> list[str]:
+    return sorted(str(value) for value in df[target].drop_nulls().unique().to_list())
+
+
+def _level_sort_key(level: object, declared: list[str] | None) -> tuple[int, Any]:
+    """Declared order first, then alphabetical, with nulls always last."""
+    if level is None:
+        return (2, "")
+    if declared is not None:
+        text = str(level)
+        return (0, declared.index(text) if text in declared else len(declared))
+    return (1, str(level))
 
 
 def overview(df: pl.DataFrame) -> pl.DataFrame:
@@ -73,3 +92,203 @@ def category_levels(
             }
         )
     return pl.DataFrame(rows)
+
+
+def level_target_rates(
+    df: pl.DataFrame,
+    cols: Sequence[str],
+    target: str,
+    orders: Mapping[str, Sequence[str]] | None = None,
+) -> pl.DataFrame:
+    """Class rate at each level of each categorical column, in declared semantic order.
+
+    Decision: is the target *monotone* in the level ordering? That is the empirical
+    claim an ordinal integer encoding makes — and the precondition for using a monotone
+    constraint later. Non-monotone means one-hot (or native categorical handling) wins,
+    because a threshold split cannot isolate a middle level.
+
+    Nulls appear as their own level, which doubles as the test of whether missingness
+    in a categorical predicts the target.
+
+    Columns without an entry in ``orders`` are listed alphabetically; nulls always last.
+    """
+    classes = _classes(df, target)
+    height = df.height
+    records: list[dict[str, Any]] = []
+
+    for col in cols:
+        grouped = df.group_by(col).agg(
+            pl.len().alias("rows"),
+            *[(pl.col(target) == cls).mean().alias(f"p_{cls}") for cls in classes],
+        )
+        declared = list(orders[col]) if orders and col in orders else None
+        keyed = [(_level_sort_key(rec[col], declared), rec) for rec in grouped.to_dicts()]
+        keyed.sort(key=lambda pair: pair[0])
+
+        for _, record in keyed:
+            level = record[col]
+            records.append(
+                {
+                    "column": col,
+                    "level": NULL_LABEL if level is None else str(level),
+                    "rows": record["rows"],
+                    "share_pct": round(100.0 * record["rows"] / height, 2),
+                    **{f"p_{cls}": round(record[f"p_{cls}"], 4) for cls in classes},
+                }
+            )
+
+    return pl.DataFrame(records)
+
+
+def numeric_summary(df: pl.DataFrame, cols: Sequence[str]) -> pl.DataFrame:
+    """Range, quantisation grid, distribution shape, and mass piled at the bounds.
+
+    Decision: which features need transformation, and whether a bound is a real limit
+    or a clip. ``grid`` is the smallest gap between adjacent distinct values — synthetic
+    data is usually quantised, and a coarse grid means the column is effectively
+    discrete. ``pct_at_min`` / ``pct_at_max`` expose clipping: a genuine distribution
+    tapers at its extremes, a clipped one piles up there.
+    """
+    records: list[dict[str, Any]] = []
+    for col in cols:
+        series = df[col].drop_nulls()
+        if series.is_empty():
+            records.append({"column": col, "n_unique": 0})
+            continue
+
+        distinct = np.sort(series.unique().to_numpy())
+        gaps = np.diff(distinct)
+        low, high = float(distinct[0]), float(distinct[-1])
+        n = series.len()
+        at_min = cast(int, (series == low).sum())
+        at_max = cast(int, (series == high).sum())
+
+        records.append(
+            {
+                "column": col,
+                "n_unique": int(distinct.size),
+                "min": low,
+                "max": high,
+                "grid": float(gaps.min()) if gaps.size else 0.0,
+                "pct_at_min": round(100.0 * at_min / n, 2),
+                "pct_at_max": round(100.0 * at_max / n, 2),
+                "mean": round(cast(float, series.mean() or 0.0), 3),
+                "std": round(cast(float, series.std() or 0.0), 3),
+                "skew": round(series.skew() or 0.0, 3),
+            }
+        )
+    return pl.DataFrame(records)
+
+
+def missing_vs_target(df: pl.DataFrame, cols: Sequence[str], target: str) -> pl.DataFrame:
+    """Class rate when a column is missing versus when it is present.
+
+    Decision: is missingness itself a feature? If the rates differ, add an indicator
+    column and stop worrying about clever imputation. If they match, the nulls were
+    injected at random and an indicator is dead weight.
+
+    Sort by ``abs_diff`` descending to find any column where it matters.
+    """
+    classes = _classes(df, target)
+    records: list[dict[str, Any]] = []
+
+    for col in cols:
+        grouped = df.group_by(pl.col(col).is_null().alias("is_missing")).agg(
+            pl.len().alias("rows"),
+            *[(pl.col(target) == cls).mean().alias(f"p_{cls}") for cls in classes],
+        )
+        lookup = {row["is_missing"]: row for row in grouped.to_dicts()}
+        if True not in lookup or False not in lookup:
+            continue
+
+        for cls in classes:
+            when_missing = lookup[True][f"p_{cls}"]
+            when_present = lookup[False][f"p_{cls}"]
+            records.append(
+                {
+                    "column": col,
+                    "target_class": cls,
+                    "n_missing": lookup[True]["rows"],
+                    "p_when_missing": round(when_missing, 4),
+                    "p_when_present": round(when_present, 4),
+                    "abs_diff": round(abs(when_missing - when_present), 4),
+                }
+            )
+    return pl.DataFrame(records)
+
+
+def missing_cooccurrence(df: pl.DataFrame, cols: Sequence[str]) -> pl.DataFrame:
+    """Do columns go missing on the same rows?
+
+    Decision: whether missingness has a structural cause worth modelling. ``ratio`` is
+    observed joint missingness over what independence would predict. A ratio near 1
+    means the columns were nulled independently; a large ratio means they share a mask,
+    which usually points at a real mechanism (a skipped form section, an offline sensor).
+
+    Sorted worst-first. Pairs where either column is never null are omitted.
+    """
+    height = df.height
+    null_rate = {col: df[col].null_count() / height for col in cols if df[col].null_count()}
+    pairs = list(combinations(null_rate, 2))
+    if not pairs:
+        return pl.DataFrame(
+            schema={
+                "col_a": pl.String,
+                "col_b": pl.String,
+                "both_missing": pl.Int64,
+                "expected": pl.Float64,
+                "ratio": pl.Float64,
+            }
+        )
+
+    joint = df.select(
+        [(pl.col(a).is_null() & pl.col(b).is_null()).sum().alias(f"{a}|{b}") for a, b in pairs]
+    ).row(0, named=True)
+
+    records: list[dict[str, Any]] = []
+    for a, b in pairs:
+        expected = height * null_rate[a] * null_rate[b]
+        observed = int(joint[f"{a}|{b}"])
+        records.append(
+            {
+                "col_a": a,
+                "col_b": b,
+                "both_missing": observed,
+                "expected": round(expected, 1),
+                "ratio": round(observed / expected, 2) if expected else None,
+            }
+        )
+    return pl.DataFrame(records).sort("ratio", descending=True, nulls_last=True)
+
+
+def class_profile(df: pl.DataFrame, cols: Sequence[str], target: str) -> pl.DataFrame:
+    """Per-class mean of each numeric feature, ranked by how far apart the classes sit.
+
+    Decision: which features carry signal, before drawing anything. ``spread_sd`` is the
+    gap between the largest and smallest class mean, in units of the column's overall
+    standard deviation — a crude effect size. Near zero means the feature cannot
+    separate the classes on its own and a density plot will show three curves on top of
+    each other.
+
+    It only sees *means*. Two classes with equal means and different variances score
+    zero here and are still separable — that is the case where a plot beats a table.
+    """
+    classes = _classes(df, target)
+    means = df.group_by(target).agg([pl.col(col).mean().alias(col) for col in cols])
+    by_class = {str(row[target]): row for row in means.to_dicts()}
+    overall_std = df.select([pl.col(col).std().alias(col) for col in cols]).row(0, named=True)
+
+    records: list[dict[str, Any]] = []
+    for col in cols:
+        values = [by_class[cls][col] for cls in classes if by_class[cls][col] is not None]
+        std = overall_std[col]
+        spread = (max(values) - min(values)) / std if values and std else None
+        records.append(
+            {
+                "column": col,
+                **{f"mean_{cls}": round(by_class[cls][col], 3) for cls in classes},
+                "overall_std": round(std, 3) if std else None,
+                "spread_sd": round(spread, 4) if spread is not None else None,
+            }
+        )
+    return pl.DataFrame(records).sort("spread_sd", descending=True, nulls_last=True)
