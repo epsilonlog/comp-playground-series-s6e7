@@ -377,6 +377,36 @@ at-min only catches them if the spike happens to land on a boundary.
 
 ---
 
+## 2026-08-28 — Standardised effect size, and what it hides
+
+To rank features by how well they separate classes, the raw gap between class means is
+useless: one column's gap is in steps, another's is in hours. Divide each gap by that
+column's own standard deviation and both become unitless and comparable. That ratio is a
+standardised effect size (essentially Cohen's *d*).
+
+Intuition for the number, as overlap between two bell curves:
+
+    2.1  →  ~29% overlap   nearly separable on that feature alone
+    0.9  →  ~65% overlap
+    0.05 →  ~98% overlap   the two curves are the same curve
+
+Three blind spots, all of which bit here:
+
+1. **Dividing by the overall std understates separation.** The overall spread already
+   contains the between-class spread. Pooled *within*-class std is the correct
+   denominator; using the overall one makes the estimate conservative.
+2. **It compares means only.** Equal means with different variances scores zero and is
+   still separable. That is precisely the case where a density plot beats a table.
+3. **With more than two classes it reads only the extremes and is blind to the middle.**
+   Two features scored equally at ~0.82; one separated all three classes, the other put
+   two classes on top of each other and only distinguished the third. Under a macro
+   metric that weights every class equally, those are not equally useful features.
+
+The fix for (3) is to read the per-class means themselves, not just the summary ratio.
+The ranking tells you where to look; the raw means tell you what you found.
+
+---
+
 ## 2026-08-28 — Why reimplement a metric sklearn already has
 
 Not because sklearn is wrong — sklearn is the **reference**, and the unit test asserts
