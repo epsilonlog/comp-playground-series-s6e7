@@ -273,6 +273,54 @@ safety is a property of the data, never of the pipeline.
 
 ---
 
+## 2026-08-28 — What GBDTs find on their own, and what they cannot
+
+"Don't hand-craft interactions, the trees find them" is true in one sense and false in
+three. A root-to-leaf path is a conjunction of conditions, so a depth-*d* tree expresses
+*d*-way **axis-aligned conjunctive** interactions. Those really are free.
+
+What must still be engineered:
+
+1. **Arithmetic combinations** — `a/b`, `a−b`. A tree approximates a diagonal boundary
+   with a staircase: many splits, poorly, and only with enough data. Hand it the ratio
+   and it becomes one split. The biggest routine win.
+2. **Interactions among individually-weak features.** Boosting is *greedy* — it takes the
+   best immediate gain. If A alone has no gain and B alone has no gain but A×B is
+   strongly predictive, neither is ever selected and the interaction is never found. XOR
+   is the extreme: representable at depth 2, unreachable by greedy fitting.
+3. **Cross-row aggregations** — mean target per user, count per store, days since the
+   previous event. A tree cannot aggregate across rows at all. In real competitions this
+   is where most feature-engineering value lives.
+
+Plus a depth budget: a 4-way interaction needs depth ≥ 4, and typical defaults sit near
+depth 5. Beyond that it is structurally unavailable, not merely hard to find.
+
+So "the trees will find it" is safe when every feature is axis-aligned, individually
+informative, and there are no entities to aggregate over. Say which of those conditions
+holds before relying on it.
+
+---
+
+## 2026-08-28 — What EDA is actually for
+
+Feature engineering is one of five outputs and often the smallest:
+
+1. **Validation design.** The class balance decides the fold scheme; get it wrong and
+   every number afterwards is fiction.
+2. **Floor and plausible ceiling.** Knowing chance is 1/K, and that the best single
+   feature could reach ~0.86 on the extreme classes, is what lets you tell a broken
+   pipeline from a hard problem when the first baseline lands.
+3. **Feature engineering.** The engineered columns themselves.
+4. **Where error will concentrate.** A class with fewer features pointing at it will be
+   the recall bottleneck. Knowing that before the first run tells you where to look.
+5. **Work avoided.** The negative results — no transforms needed, missingness carries no
+   signal, category sets match — feel like nothing happened and are usually the largest
+   time saving in the whole exercise.
+
+Most EDA findings are negative. That is the point, not a disappointment.
+
+---
+
 ## 2026-08-28 — Counting pairs without a loop
 
 A confusion matrix counts how often each **(true, predicted)** pair occurs. Counting
