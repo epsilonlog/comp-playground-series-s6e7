@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import polars as pl
+import pytest
 
 from s6e7.eda import (
     category_levels,
@@ -126,6 +127,24 @@ def test_numeric_summary_finds_grid_and_bounds() -> None:
     assert row["max"] == 3.0
     assert row["grid"] == 0.5
     assert row["n_unique"] == 5
+
+
+def test_grid_is_the_median_gap_not_the_minimum() -> None:
+    """One off-grid value must not make a clean 1.0 grid look like a 0.2 grid."""
+    df = pl.DataFrame({"x": [1.0, 2.0, 3.0, 4.0, 5.0, 5.2, 6.0, 7.0, 8.0]})
+    row = numeric_summary(df, ["x"]).row(0, named=True)
+    assert row["grid"] == 1.0
+    assert row["min_gap"] == pytest.approx(0.2)
+
+
+def test_mode_pct_catches_a_point_mass_away_from_the_bounds() -> None:
+    """Zero-inflation style spike sitting in the middle of the range."""
+    df = pl.DataFrame({"x": [1.0, 9.0, *([5.0] * 8)]})
+    row = numeric_summary(df, ["x"]).row(0, named=True)
+    assert row["mode"] == 5.0
+    assert row["mode_pct"] == 80.0
+    assert row["pct_at_min"] == 10.0
+    assert row["pct_at_max"] == 10.0
 
 
 def test_numeric_summary_detects_clipping_mass() -> None:

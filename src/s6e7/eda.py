@@ -143,11 +143,19 @@ def level_target_rates(
 def numeric_summary(df: pl.DataFrame, cols: Sequence[str]) -> pl.DataFrame:
     """Range, quantisation grid, distribution shape, and mass piled at the bounds.
 
-    Decision: which features need transformation, and whether a bound is a real limit
-    or a clip. ``grid`` is the smallest gap between adjacent distinct values — synthetic
-    data is usually quantised, and a coarse grid means the column is effectively
-    discrete. ``pct_at_min`` / ``pct_at_max`` expose clipping: a genuine distribution
-    tapers at its extremes, a clipped one piles up there.
+    Decision: which features need transformation, whether a bound is a real limit or a
+    clip, and whether the distribution hides a point mass.
+
+    ``grid`` is the **median** gap between adjacent distinct values — the typical
+    quantisation step. Do not use the minimum for this: a single off-grid value splits
+    one normal step into two smaller ones and drags the minimum down by an order of
+    magnitude, making a clean grid look ragged. ``min_gap`` is reported separately
+    precisely so that contamination is visible instead of silently corrupting ``grid``.
+
+    ``pct_at_min`` / ``pct_at_max`` expose clipping: a genuine distribution tapers at
+    its extremes, a clipped one piles up there. ``mode_pct`` catches a point mass
+    *anywhere* — zero-inflation, a sentinel, or a default value — which the bound
+    percentages miss unless the spike happens to sit on a bound.
     """
     records: list[dict[str, Any]] = []
     for col in cols:
@@ -162,6 +170,7 @@ def numeric_summary(df: pl.DataFrame, cols: Sequence[str]) -> pl.DataFrame:
         n = series.len()
         at_min = cast(int, (series == low).sum())
         at_max = cast(int, (series == high).sum())
+        modes = series.value_counts(sort=True).row(0)
 
         records.append(
             {
@@ -169,7 +178,10 @@ def numeric_summary(df: pl.DataFrame, cols: Sequence[str]) -> pl.DataFrame:
                 "n_unique": int(distinct.size),
                 "min": low,
                 "max": high,
-                "grid": float(gaps.min()) if gaps.size else 0.0,
+                "grid": float(np.median(gaps)) if gaps.size else 0.0,
+                "min_gap": float(gaps.min()) if gaps.size else 0.0,
+                "mode": float(modes[0]),
+                "mode_pct": round(100.0 * int(modes[1]) / n, 2),
                 "pct_at_min": round(100.0 * at_min / n, 2),
                 "pct_at_max": round(100.0 * at_max / n, 2),
                 "mean": round(cast(float, series.mean() or 0.0), 3),
