@@ -1,0 +1,15 @@
+# data & artifacts
+data/
+oof/
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+*.ipynb_checkpoints
+.ipynb_checkpoints/
+
+# tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
