@@ -281,7 +281,10 @@ Rules:
 - **Concepts and reasoning only.** No code, no config, no API signatures. If it lives in
   the repo, it doesn't belong here. This is the part that transfers to the next
   competition.
-- **Append-only, newest last.** Dated `## YYYY-MM-DD — <concept>` headings.
+- **Append new sections at the end.** Dated `## YYYY-MM-DD — <concept>` headings.
+- **Consolidate when asked, or when entries start overlapping.** Merge related sections,
+  keep every worked number, drop the scaffolding. A short file gets reread; a long one
+  doesn't.
 - **Keep the worked numbers.** The toy example that made it click is the most valuable
   part of an entry. Don't compress it into an abstract statement.
 - **Write what was actually understood**, including corrections of the operator's

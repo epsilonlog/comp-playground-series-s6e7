@@ -1,424 +1,236 @@
 # LEARNING.md
 
-Concepts understood while working this competition. Append-only, newest section last.
-Concepts and reasoning only — no code, no config. If it's in the code, it doesn't
-belong here; this is the part that transfers to the next competition.
+Concepts understood while working this competition. Concepts and reasoning only — no
+code, no config. If it's in the repo, it doesn't belong here.
+
+Append new sections at the end. Consolidate periodically: merge overlapping entries,
+keep the worked numbers, drop the scaffolding.
 
 ---
 
 ## 2026-08-28 — Balanced accuracy
 
-**Definition.** The macro-average of per-class **recall**. Build the confusion matrix,
-divide each diagonal cell by its row sum (= how many rows *truly* belong to that class),
-average across classes. S6E7 has 3 classes, so each contributes exactly 1/3 regardless of
-how many rows it has.
+The macro-average of per-class **recall**. Build the confusion matrix, divide each
+diagonal cell by its row sum, average across classes. Each class contributes 1/K
+regardless of size.
 
-**Macro vs micro vs weighted.**
+Macro is the odd one out: micro-averaged recall and weighted-average recall both *equal*
+plain accuracy. Only macro discards class sizes. "Average the per-class accuracies" is
+the right intuition — and it is not the same as overall accuracy:
 
-| | how it combines | one "unit" is |
-|---|---|---|
-| micro | pool all rows, then compute | a sample |
-| weighted | average per class, weighted by class size | a sample |
-| macro | average per class, all classes equal | **a class** |
+    classes 70k / 25k / 5k, predict the majority for everything
+    recalls  1.00, 0.00, 0.00   →  balanced accuracy 0.333
+                                →  plain accuracy    0.700
 
-Micro-averaged recall *is* plain accuracy. So is weighted. Macro is the odd one out — it
-deliberately discards class sizes. "Average the per-class accuracies" is the right
-intuition, and it is **not** the same as overall accuracy.
+**The floor is 1/K, not 0.5.** Always-one-class and random guessing both score 1/K. The
+bottom third of the raw scale carries no information, which is what `adjusted=True`
+rescales away: `(score − 1/K) / (1 − 1/K)`, chance → 0. Kaggle scores unadjusted, so
+keep the conversion as a reality check — **a raw 0.50 at K=3 is an adjusted 0.25**, only
+a quarter of the way from chance to perfect.
 
-**The arithmetic that matters.** One extra correct row in class *k* is worth
-`1 / (K · n_k)` points. With classes of 70k / 25k / 5k, a rare-class row is worth **14×**
-a majority-class row. This is the same statement as sklearn's "each sample is weighted by
-the inverse prevalence of its true class".
+**Row value.** One extra correct row in class *k* is worth `1/(K·n_k)`. At 70k/25k/5k a
+rare-class row is worth **14×** a majority-class row. Same statement as "each sample is
+weighted by the inverse prevalence of its true class".
 
-**The floor is 1/3, not 0.5.** Always-predict-majority scores recall 1 on one class and 0
-on the others → 0.333. Identical to random guessing. Don't read a 0.45 as failure until
-you've seen the fold spread.
+**Consequences for CV.** StratifiedKFold is mandatory — per-class recall on a fold short
+of the rare class is high-variance. Expect a larger `cv_std` than usual, because the
+metric is a step function (below).
 
-**Consequence for CV.** StratifiedKFold is mandatory. Per-class recall computed on a fold
-that received too few rare-class rows is high-variance, and stratification is the direct
-fix. Also expect a larger `cv_std` than usual, because the metric is a step function
-(see below) — which is exactly why CLAUDE.md demands `cv_std` alongside `cv_mean`.
-
----
-
-## 2026-08-28 — Gradient boosting, mechanically
-
-For K classes the model maintains **K raw scores per row**, `F_1(x) … F_K(x)`. Softmax
-turns them into probabilities. The loss is multiclass log-loss — the negative log of the
-probability assigned to the *true* class:
-
-    L = − log q_y(x)
-
-Each boosting iteration fits one regression tree **per class** to the negative gradient.
-For softmax + cross-entropy that gradient collapses to:
-
-    ∂L / ∂F_k  =  q_k − 1[y = k]
-
-The tree fits *(is this the true class?) − (probability we gave it)*. True class B with
-`q_B = 0.30` → residual 0.70 → push `F_B` up. Multiply by the learning rate, add, repeat.
-500 rounds × 3 classes = 1,500 trees.
-
-**The thing to notice:** nothing in that loop computes an argmax, and nothing in it knows
-what balanced accuracy is. Training optimizes *probability quality*. Collapsing
-probabilities into one label is a separate step, outside the model — and that is where
-the competition metric finally enters.
-
-Sample weights plug in as `Σ wᵢ · Lᵢ`. Weighting a rare-class row by 14 makes its gradient
-14× larger, shifting the learned probabilities as if that class were 14× more common.
+**Why reimplement it when sklearn has it.** sklearn stays the reference and the test
+asserts agreement. But: writing it is how you learn what you're scored on; if a class is
+absent from `y_true`, sklearn silently drops it and divides by K−1, which is a *different
+metric* than the host computes and would distort one fold; the decision-rule search calls
+it hundreds of times over ~690k rows; and it gives one call site for every scorer in the
+project.
 
 ---
 
-## 2026-08-28 — Surrogate loss vs evaluation metric
+## 2026-08-28 — Training optimises one thing, deciding optimises another
 
-**You cannot train on balanced accuracy. Nobody can.**
+**Gradient boosting, mechanically.** For K classes the model keeps K raw scores per row,
+softmaxed into probabilities. The loss is log-loss, `L = −log q_y(x)`. Each iteration
+fits one tree per class to the negative gradient, which for softmax + cross-entropy
+collapses to:
 
-Boosting needs a differentiable loss. Balanced accuracy depends only on the argmax: nudge
-a probability from 0.51 to 0.52 and the score doesn't move; nudge it past an argmax flip
-and it jumps. The derivative is zero everywhere it exists and undefined at the jumps.
-There is nothing to descend.
+    ∂L/∂F_k  =  q_k − 1[y = k]
 
-So every competition with a non-differentiable metric has this two-stage shape:
+The tree fits *(is this the true class?) − (probability we gave it)*. True class B at
+`q_B = 0.30` → residual 0.70 → push `F_B` up. Nothing in that loop computes an argmax or
+knows what balanced accuracy is.
 
-    train on a differentiable SURROGATE   (log-loss)
-            ↓
-    evaluate and tune on the REAL metric  (balanced accuracy)
+**You cannot train on balanced accuracy. Nobody can.** It depends only on the argmax:
+nudge a probability from 0.51 to 0.52 and nothing moves; nudge it past a flip and it
+jumps. Derivative zero where it exists, undefined at the jumps. So every
+non-differentiable metric forces the same two-stage shape — train on a differentiable
+**surrogate** (log-loss), then evaluate and tune on the **real metric**. The gap between
+them is free score.
 
-Log-loss is a good surrogate — low log-loss usually means good balanced accuracy — but
-"usually" is not "optimally". The gap between the two is free score, recovered at
-stage 2. This is a general pattern, not an S6E7 quirk.
+**Where probabilities stop and labels begin.**
 
----
+    model → Q (n_rows, K) floats → decision rule → y_pred (n_rows,) → metric → score
 
-## 2026-08-28 — Argmax is a choice, not a law
+The metric cannot distinguish `(0.51, 0.49, 0.00)` from `(0.99, 0.01, 0.00)`; both argmax
+to the same class. All confidence information is discarded before it is called.
 
-A multiclass model outputs probabilities, not a label. Something must collapse them.
-Every library's `.predict()` takes the largest — argmax — because argmax is provably
-optimal **for plain accuracy**. It is the default because accuracy is the unstated
-default assumption everywhere.
-
-It is wrong for balanced accuracy. The model learned `p(k|x)` from data where the
-majority class dominates, so the prior is baked into the probability — and balanced
-accuracy has explicitly declared that prior worth nothing.
-
-Decision theory: predicting class *k* pays `p(k|x) · 1/(K·n_k)`, so pick the *k*
-maximising `p(k|x) / π_k`. **Divide the probability by the class prior.**
+**Argmax is a choice, not a law.** It is provably optimal *for plain accuracy* — the
+default everywhere because accuracy is the unstated default. It's wrong here: the model
+learned `p(k|x)` under the training prior, and balanced accuracy declares that prior
+worth nothing. Decision theory says maximise `p(k|x)/π_k`:
 
     p = (0.55, 0.30, 0.15),  π = (0.70, 0.25, 0.05)
-    → (0.79,  1.20,  3.00)   → predict class 3, not class 1
+      →  (0.79,  1.20,  3.00)   → predict class 3, not class 1
 
-Same model, same probabilities, opposite answer. Costs zero training time.
+Two routes, and which wins is an experiment: **weight during training**
+(`sample_weight ∝ 1/n_class`, so argmax becomes correct — wins when a class is so rare an
+unweighted model never learns it), or **adjust after training** (free, instant, applies to
+any trained model, keeps probabilities undistorted — usually the better start).
 
-Two routes to the same place, and which wins is an **experiment**, not a known:
+**Calibration.** A model is calibrated when its stated probabilities match observed
+frequencies: of rows where it said 0.70, about 70% really are that class. Long boosting
+runs overshoot toward 0/1; early stopping and regularisation undershoot; rare classes are
+systematically under-predicted; class weighting distorts deliberately.
 
-- **Route 1 — weight during training** (`sample_weight ∝ 1/n_class`). The model learns
-  under an effectively balanced prior, so plain argmax becomes roughly correct. Wins when
-  a class is so rare that an unweighted model barely learns it at all — no post-hoc fix
-  recovers information that was never encoded.
-- **Route 2 — adjust after training.** Free, instant, applies to any already-trained
-  model, optimizes the real metric directly, and keeps probabilities undistorted.
-  Usually the better starting point.
+This breaks divide-by-prior, because that rule assumes `p` is the *true* posterior:
 
----
+    true posterior:      0.15 / 0.05 = 3.00  → predict it    ✓
+    model under-predicts: 0.08 / 0.05 = 1.60  → predict other ✗
 
-## 2026-08-28 — Calibration
+**So stop trusting the derivation and let the data pick the number.** Treat the divisor
+as a free parameter: predict `argmax_k m_k · q(k|x)`, choose `m` by maximising the metric
+directly on OOF. If the model is calibrated the optimiser lands near `1/π` anyway; if not,
+it absorbs prior correction *and* calibration error in one step.
 
-A model is **calibrated** when its stated probabilities match observed frequencies: of
-all rows where it said 0.70, about 70% really are that class. Plot predicted vs observed
-and perfect calibration is the diagonal — that's the reliability curve in
-`oof_diagnostics`.
+    6 rows, class counts 3 / 2 / 1
+    plain argmax      m = (1, 1,   1  )   →  0.500
+    divide by prior   m = (1, 1.5, 3  )   →  0.778
+    searched on OOF   m = (1, 1.2, 2.5)   →  0.889
 
-Models drift off it routinely. Long boosting runs push probabilities toward 0/1
-(overconfident); early stopping and regularisation stop short (underconfident); rare
-classes are systematically under-predicted because the loss barely notices them; class
-weighting distorts probabilities deliberately.
-
-**Why this breaks divide-by-prior.** The rule `argmax p(k|x)/π_k` is *derived* assuming
-`p` is the true posterior. The model emits a distorted estimate `q`. Dividing by π
-corrects the prior and does nothing about the distortion — a correct adjustment applied
-to a wrong input.
-
-    true posterior for rare class:  0.15 / 0.05 = 3.00  → predict it   ✓
-    model under-predicts it:        0.08 / 0.05 = 1.60  → predict other ✗
-
-**The fix: stop trusting the derivation, let the data pick the number.** Don't divide by
-π — treat the divisor as a free parameter. Predict `argmax_k m_k · q(k|x)` and choose `m`
-by maximising balanced accuracy directly on the OOF vector.
-
-If the model happens to be calibrated the optimizer lands near `1/π` on its own, so
-nothing is lost. If it isn't, the optimizer absorbs the prior correction *and* the
-calibration error in one step, without needing to know which is which.
-
-Limit: one multiplier per class can only undo a per-class multiplicative distortion. A
-model overconfident at high probabilities but accurate at low ones needs explicit
-calibration (Platt / isotonic, fitted inside the fold). Look at the reliability curve
-first; escalate only if it's ugly.
-
-**Worked toy** — 6 rows, class counts A=3, B=2, C=1:
-
-| rule | multipliers | balanced accuracy |
-|---|---|---|
-| plain argmax | (1, 1, 1) | 0.500 |
-| divide by prior | (1, 1.5, 3) | 0.778 |
-| searched on OOF | (1, 1.2, 2.5) | **0.889** |
-
-`1/π` captures most of the gain — the prior intuition is sound. The search beats it
-because the probabilities aren't calibrated. Note the searched rule *sacrifices* a
-correct majority-class row to win two minority ones: a bad trade under accuracy, a great
-one under balanced accuracy. The search finds that trade without being told.
+`1/π` captures most of the gain — the prior intuition is sound. The searched rule
+*sacrifices* a correct majority row to win two minority ones: a bad trade under accuracy,
+a great one here, and it finds that trade without being told.
 
 **Who searches?** Not the model. A small loop in our own code, after CV, over 2 free
-parameters (scaling all K multipliers by a constant doesn't change any argmax, so one can
-be fixed at 1). No gradients — just evaluate the metric on a few hundred candidates.
+parameters (scaling all K multipliers by a constant changes no argmax, so fix one at 1).
+No gradients. Start with `1/π`; the search is a later experiment worth a few thousandths.
 
-Practical ordering: start with `1/π`. The search is a later experiment with its own
-`exp_id`, worth perhaps a few thousandths.
+A multiplier can only undo a per-class *multiplicative* distortion. A model overconfident
+at high probabilities but accurate at low ones needs explicit calibration (Platt /
+isotonic, fitted inside the fold). Check the reliability curve first.
 
 ---
 
 ## 2026-08-28 — OOF (out-of-fold predictions)
 
-In k-fold CV, each fold is predicted by a model trained on the *other* folds. Stack those
-prediction blocks back together in row order and you get **one prediction for every
-training row, each made by a model that never saw that row** — same length as `y_train`,
-aligned index-for-index.
-
-    fold 0  [pred ][            train             ]
-    fold 1  [train][pred ][        train          ]
-    fold 2  [       train      ][pred ][  train   ]
-                        ↓ stack
-    OOF     [pred ][pred ][pred ][pred ][pred ]
+Each fold is predicted by a model trained on the other folds. Stack the blocks back in
+row order and you get **one prediction per training row, each from a model that never saw
+that row** — same length as `y_train`, aligned index-for-index.
 
 **Why it matters: the difference between a number and a vector.** A CV score of 0.612 is
-a scalar — you can only compare it to another scalar. The OOF vector is a prediction for
-every row paired with its true label. That's a dataset, and you can *optimize against it*:
+a scalar; you can only compare it to another scalar. The OOF vector is a prediction for
+every row paired with its true label — a dataset you can optimise against: tune the
+decision rule, search blend weights, stack base models as meta-features, find which slice
+the error concentrates in. None of that is possible from a scalar.
 
-- tune the decision rule (the multipliers above) — needs predictions and truth on the
-  same rows
-- **blend** — search weights for `0.6 × lgbm + 0.4 × catboost` directly
-- **stack** — feed base models' OOF predictions as features to a meta-model
-- **error analysis** — `oof_diagnostics` needs per-row error to find the failing slice
-
-None of that is possible from a scalar. Hence CLAUDE.md: *without OOF you cannot blend.*
-
-**Save probabilities, not labels.** `(n_rows, n_classes)` in `oof/exp_XXXX.npy`. You can
-always argmax later; you can never recover probabilities from labels — and the entire
-decision-rule tuning depends on having them.
+**Save probabilities, not labels.** Trying a new `m` requires `Q`. From stored labels
+there is nothing left to search over — the argmax destroyed it.
 
 **Leakage contaminates OOF silently.** Fit a scaler, imputer, or target encoder on the
 full training set before splitting and fold *k*'s "unseen" rows influenced the model that
-predicts them. The OOF vector still looks fine. Every weight tuned on it is then tuned
-against a lie, and it only surfaces on the leaderboard. This is why every transform must
-fit inside the fold.
+predicts them. The vector still looks fine; everything tuned on it is tuned against a lie,
+and it only surfaces on the leaderboard.
 
 **Fold-wise score ≠ whole-vector score.** Scoring each fold separately gives `cv_mean`
-*and* `cv_std`; scoring the stacked vector once gives a single close-but-different number.
-Use the fold-wise version — the std is what tells you whether +0.001 is real.
+*and* `cv_std`. Use that — the std is what tells you whether +0.001 is real.
 
-OOF is **not** your test predictions. Those come from averaging the K fold-models on test
-(or refitting on all data). Different object, different purpose.
+OOF is **not** your test predictions; those average the K fold-models on test.
+
+---
+
+## 2026-08-28 — Encoding ordered categories
+
+`low < medium < high` is a fact about **words**. Encoding it `0, 1, 2` is an empirical
+claim about the **target**, and the words can be ordered while the claim is false.
+
+A tree splits on a threshold, so with three levels the only bipartitions available are
+`{low} | {medium, high}` and `{low, medium} | {high}`. **`medium` cannot be isolated in
+one split.** The encoding is a *constraint* restricting the model to contiguous groupings
+in your chosen order.
+
+**The rule is contiguity, not monotonicity — I had this wrong.** Real data showed
+`stress_level` strongly non-monotone in the majority class (0.80 → 0.99 → 0.72, peaking in
+the middle), which by a monotonicity rule should favour one-hot. It doesn't: the
+*informative* levels were the two extremes, and threshold splits isolate extremes
+perfectly. Only the middle level was unreachable, and the middle level was the boring one.
+
+Ask **"are the levels I need to isolate contiguous in this ordering?"** Monotonicity is
+sufficient for that, not necessary. A U-shape with interesting ends is fine; an
+interesting *middle* is not.
+
+**Scale of the effect.** At 3 levels this is minor — one-hot costs 2 columns, ordinal
+costs at most one extra split. It becomes decisive at high cardinality. And GBDTs with
+native categorical handling find a good bipartition from gradient statistics with no
+ordering at all, sidestepping the question.
+
+**Where verifying monotonicity does pay: monotone constraints.** Forcing a feature's
+effect to be monotone eliminates a class of overfitting where the model learns a wiggle
+that is really noise. That needs both an ordinal encoding *and* evidence the relationship
+is monotone — and monotonicity, unlike encoding, really is the requirement.
+
+---
+
+## 2026-08-28 — Describing data honestly
+
+**Any summary defined as a min or max describes your worst data point, not your data.** I
+measured a quantisation grid as the minimum gap between adjacent distinct values. Two
+clean columns came back ragged — a 0.1 grid reported as 0.03, a 0.01 grid as 0.001. Each
+had exactly *one* off-grid value, splitting a normal step into two smaller ones. One row
+in 690,000 moved the statistic tenfold. The median was exactly right (526 of 536 gaps were
+precisely 0.1), and the tell was a `0.07 + 0.03` pair summing to one normal step.
+
+Use a quantile to describe the bulk. If the extreme is interesting, give it its own column
+so contamination stays *visible* instead of corrupting the number you meant to read.
+
+**Bound checks miss a spike in the middle.** Percent-at-min only catches zero-inflation if
+zero happens to be the minimum. Share-of-the-modal-value catches a point mass — sentinel,
+default, or inflated zero — wherever it sits.
+
+**Equal counts are not evidence of a shared mask.** Two columns showed exactly 6,901 nulls
+in train and 2,958 in test; I inferred a shared missingness mask. Wrong — it was
+arithmetic: 690,088 × 1% = 6,900.88 → 6,901. A fixed proportion per column, rounded, drawn
+independently. Only the *joint* count distinguishes the two stories: compare observed
+co-missingness against `n · p_a · p_b`, never counts against each other.
+
+**Standardised effect size, and its blind spots.** Raw gaps between class means aren't
+comparable across columns — one is in steps, another in hours. Divide each gap by its own
+column's standard deviation and both become rankable. As overlap between two bell curves:
+
+    2.1  →  ~29% overlap    nearly separable on that feature alone
+    0.9  →  ~65% overlap
+    0.05 →  ~98% overlap    the two curves are the same curve
+
+Three blind spots, all of which bit here: dividing by the *overall* std understates
+separation (the pooled within-class std is correct, so the estimate is conservative); it
+compares means only, so equal means with different variances score zero and are still
+separable; and with more than two classes it reads only the extremes and is blind to the
+middle. Two features scored equally at ~0.82 — one separated all three classes, the other
+put two classes on top of each other and only found the third. Under a macro metric those
+are not equally useful. The ranking says where to look; the raw per-class means say what
+you found.
 
 ---
 
 ## 2026-08-28 — Counting pairs without a loop
 
-A confusion matrix is just a count of how often each **(true class, predicted class)**
-pair occurs. Cell `[i][j]` = rows that were truly *i* but predicted *j*. Every row of
-data contributes exactly one pair.
-
-Counting utilities count *single integers*, not tuples. So squash the pair into one
-integer using base-*n* positional notation:
+A confusion matrix counts how often each **(true, predicted)** pair occurs. Counting
+utilities count single integers, not tuples — so squash the pair into one integer with
+base-*n* positional notation:
 
     flat = true_index * n_classes + predicted_index
 
 With 2 classes: (0,0)→0, (0,1)→1, (1,0)→2, (1,1)→3. Unique, no collisions — the same
-arithmetic as "row *r*, column *c* of a grid *w* wide is cell `r*w + c`". Count the flat
-integers, reshape back to *n × n*, and the confusion matrix falls out with no Python
-loop at all.
+arithmetic as "row *r*, column *c* of a grid *w* wide is cell `r·w + c`". Count the flat
+integers, reshape to *n × n*, and the matrix falls out with no Python loop.
 
-Why it's worth the trick: a Python loop over 690k rows is roughly a second. The
-decision-rule search calls this hundreds of times. One C-level pass instead of a loop is
-the difference between a search that runs and one that doesn't.
-
-Generalises well beyond confusion matrices — any time you need to count combinations of
-a few small-cardinality integers, encode them into one integer and count that.
-
----
-
-## 2026-08-28 — Where probabilities stop and labels begin
-
-The metric never sees probabilities. The pipeline is:
-
-    model         →  Q        (n_rows, n_classes)  floats, rows sum to 1
-    decision rule →  y_pred   (n_rows,)            one label per row
-    metric        →  score    one number
-
-Balanced accuracy is defined on the confusion matrix, which is defined on hard labels.
-By the time it is called, the collapse has already happened, so it cannot distinguish:
-
-    q = (0.51, 0.49, 0.00)  → argmax 0
-    q = (0.99, 0.01, 0.00)  → argmax 0     identical contribution to the score
-
-All confidence information is discarded. That is not an implementation detail — it *is*
-the step-function property, and it's why there's no gradient to train on.
-
-Probabilities do their work one step earlier, in the decision rule:
-
-    for each candidate m:
-        y_pred = argmax(Q * m)          ← probabilities used here
-        score  = metric(y_true, y_pred) ← labels only
-
-This is the concrete reason to save **probabilities, not labels**, as OOF. Trying a new
-`m` requires `Q`. From stored labels there is nothing left to search over — the argmax
-already destroyed the information.
-
----
-
-## 2026-08-28 — "Ordinal" is a claim about the target, not about the words
-
-`low < medium < high` is a fact about language. Encoding it as `0, 1, 2` is a different
-and *empirical* claim: that moving up the scale moves the outcome consistently in one
-direction. The words can be perfectly ordered while the claim is false.
-
-**What an integer encoding does to a tree.** A tree splits on a threshold `x <= t`. With
-three levels encoded 0/1/2 the only available bipartitions are:
-
-    x <= 0   →   {low} | {medium, high}
-    x <= 1   →   {low, medium} | {high}
-
-`medium` cannot be isolated in a single split. The encoding restricts the model to
-*contiguous* groupings in the chosen order — it is a **constraint**, not merely a
-representation. Constraints help when true and hurt when false.
-
-    monotone                     non-monotone
-    low     0.10                 low     0.10
-    medium  0.06                 medium  0.04   ← minimum in the middle
-    high    0.03                 high    0.06
-
-Left: one split does real work. Right: no threshold isolates the interesting level, so
-one-hot (`is_medium`) beats ordinal in one split where ordinal needs two — and a shallow
-tree may never recover it.
-
-**Honest scale of the effect.** At 3 levels this is minor: one-hot costs 2 columns,
-ordinal costs at most one extra split, and a GBDT recovers either way. It becomes
-decisive at high cardinality, where one-hot explodes the feature space. And GBDTs with
-native categorical handling find a good bipartition from gradient statistics with no
-ordering at all, which sidesteps the question entirely.
-
-**Where verifying monotonicity actually pays: monotone constraints.** Forcing a
-feature's effect to be monotone is a strong regulariser — it eliminates a class of
-overfitting where the model learns a wiggle that is really noise. But it requires both
-an ordinal encoding *and* evidence the relationship really is monotone. That, rather
-than the encoding choice, is the reason to measure the per-level target rate.
-
----
-
-## 2026-08-28 — Correction: the question is contiguity, not monotonicity
-
-I gave the rule "non-monotone target rate → one-hot beats ordinal". Real data showed it
-is too crude.
-
-`stress_level` came back strongly non-monotone in the majority class (0.80 → 0.99 →
-0.72, peaking in the middle). By the rule, ordinal encoding should lose. It doesn't —
-because the levels that *matter* are the two extremes, and a threshold split isolates
-extremes perfectly:
-
-    x <= 0   →   {low}          ✓ where the minority class "fit" lives
-    x >  1   →   {high}         ✓ where "unhealthy" lives
-    {medium} alone               ✗ unavailable — but medium is the uninformative level
-
-The right question is not "is the rate monotone" but **"are the levels I need to isolate
-contiguous in this ordering?"** Monotonicity is a sufficient condition for that, not a
-necessary one. A U-shape whose interesting levels sit at the ends is perfectly served by
-an ordinal encoding; a shape whose interesting level sits in the middle is not.
-
-Monotonicity remains the requirement for a *monotone constraint* — that part stands. The
-two are separate questions and I had collapsed them.
-
----
-
-## 2026-08-28 — Equal null counts are not evidence of a shared mask
-
-Two columns showed exactly 6,901 nulls in train and exactly 2,958 in test. I inferred a
-shared missingness mask. The co-occurrence check refuted it: their joint missingness sat
-at the independence baseline.
-
-The real explanation was arithmetic. 690,088 × 1% = 6,900.88 → 6,901, and
-295,753 × 1% = 2,957.53 → 2,958. The generator nulls a **fixed proportion per column,
-rounded**, drawing rows independently. Identical rates produce identical *counts*
-without any shared rows at all.
-
-Lesson: equal counts are consistent with both a shared mask and independent draws at the
-same rate. Only the joint count distinguishes them — compare observed co-missingness
-against `n · p_a · p_b`, never counts against each other.
-
----
-
-## 2026-08-28 — Summarise with a robust statistic, not an extremal one
-
-I measured a column's quantisation grid as the **minimum** gap between adjacent distinct
-values. Two columns came back looking ragged — a 0.1 grid reported as 0.03, a 0.01 grid
-reported as 0.001.
-
-Both were clean. Each had exactly **one** contaminating off-grid value, which splits a
-single normal step into two smaller ones. One row in 690,000 moved the reported statistic
-by a factor of ten.
-
-The median gap was exactly right in every case (526 of 536 gaps were precisely 0.1). The
-tell was the gap histogram: a `0.07 + 0.03` pair adding to exactly one normal step.
-
-General rule: **any summary defined as a min or a max is a summary of your worst data
-point, not of your data.** Use a quantile when you want to describe the bulk. If the
-extreme is genuinely interesting, report it as its own column — that way contamination
-becomes visible instead of silently corrupting the statistic you meant to read.
-
-Related: a spike anywhere in the range is invisible to bound-based checks. Share-of-the-
-modal-value catches zero-inflation, sentinels, and defaults wherever they sit; percent-
-at-min only catches them if the spike happens to land on a boundary.
-
----
-
-## 2026-08-28 — Standardised effect size, and what it hides
-
-To rank features by how well they separate classes, the raw gap between class means is
-useless: one column's gap is in steps, another's is in hours. Divide each gap by that
-column's own standard deviation and both become unitless and comparable. That ratio is a
-standardised effect size (essentially Cohen's *d*).
-
-Intuition for the number, as overlap between two bell curves:
-
-    2.1  →  ~29% overlap   nearly separable on that feature alone
-    0.9  →  ~65% overlap
-    0.05 →  ~98% overlap   the two curves are the same curve
-
-Three blind spots, all of which bit here:
-
-1. **Dividing by the overall std understates separation.** The overall spread already
-   contains the between-class spread. Pooled *within*-class std is the correct
-   denominator; using the overall one makes the estimate conservative.
-2. **It compares means only.** Equal means with different variances scores zero and is
-   still separable. That is precisely the case where a density plot beats a table.
-3. **With more than two classes it reads only the extremes and is blind to the middle.**
-   Two features scored equally at ~0.82; one separated all three classes, the other put
-   two classes on top of each other and only distinguished the third. Under a macro
-   metric that weights every class equally, those are not equally useful features.
-
-The fix for (3) is to read the per-class means themselves, not just the summary ratio.
-The ranking tells you where to look; the raw means tell you what you found.
-
----
-
-## 2026-08-28 — Why reimplement a metric sklearn already has
-
-Not because sklearn is wrong — sklearn is the **reference**, and the unit test asserts
-agreement with it on random inputs. Four reasons:
-
-1. **Writing it is how you learn what you're scored on.** CLAUDE.md workflow step 1.
-2. **Edge cases it handles silently.** If a class is absent from `y_true`,
-   `balanced_accuracy_score` drops it, warns, and divides by K−1. That is a *different
-   metric* than Kaggle computes on the full test set, and it would quietly distort one
-   fold. Our version pins the behaviour down with a test.
-3. **Speed where it matters.** The multiplier search calls the metric hundreds of times
-   over ~690k rows. sklearn re-validates inputs every call and builds the confusion
-   matrix through a general path; a lean `bincount` version skips that.
-4. **One call site.** `cv.py`, the multiplier search, and `oof_diagnostics` all score
-   identically by construction.
+A Python loop over 690k rows is about a second; the decision-rule search calls this
+hundreds of times. Generalises to any counting of combinations of small-cardinality
+integers.
