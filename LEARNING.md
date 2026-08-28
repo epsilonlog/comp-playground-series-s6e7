@@ -273,6 +273,45 @@ already destroyed the information.
 
 ---
 
+## 2026-08-28 — "Ordinal" is a claim about the target, not about the words
+
+`low < medium < high` is a fact about language. Encoding it as `0, 1, 2` is a different
+and *empirical* claim: that moving up the scale moves the outcome consistently in one
+direction. The words can be perfectly ordered while the claim is false.
+
+**What an integer encoding does to a tree.** A tree splits on a threshold `x <= t`. With
+three levels encoded 0/1/2 the only available bipartitions are:
+
+    x <= 0   →   {low} | {medium, high}
+    x <= 1   →   {low, medium} | {high}
+
+`medium` cannot be isolated in a single split. The encoding restricts the model to
+*contiguous* groupings in the chosen order — it is a **constraint**, not merely a
+representation. Constraints help when true and hurt when false.
+
+    monotone                     non-monotone
+    low     0.10                 low     0.10
+    medium  0.06                 medium  0.04   ← minimum in the middle
+    high    0.03                 high    0.06
+
+Left: one split does real work. Right: no threshold isolates the interesting level, so
+one-hot (`is_medium`) beats ordinal in one split where ordinal needs two — and a shallow
+tree may never recover it.
+
+**Honest scale of the effect.** At 3 levels this is minor: one-hot costs 2 columns,
+ordinal costs at most one extra split, and a GBDT recovers either way. It becomes
+decisive at high cardinality, where one-hot explodes the feature space. And GBDTs with
+native categorical handling find a good bipartition from gradient statistics with no
+ordering at all, which sidesteps the question entirely.
+
+**Where verifying monotonicity actually pays: monotone constraints.** Forcing a
+feature's effect to be monotone is a strong regulariser — it eliminates a class of
+overfitting where the model learns a wiggle that is really noise. But it requires both
+an ordinal encoding *and* evidence the relationship really is monotone. That, rather
+than the encoding choice, is the reason to measure the per-level target rate.
+
+---
+
 ## 2026-08-28 — Why reimplement a metric sklearn already has
 
 Not because sklearn is wrong — sklearn is the **reference**, and the unit test asserts
