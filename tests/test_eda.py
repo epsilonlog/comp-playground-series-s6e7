@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import polars as pl
 import pytest
 
@@ -9,6 +11,7 @@ from s6e7.eda import (
     level_target_rates,
     missing_cooccurrence,
     missing_vs_target,
+    numeric_correlation,
     numeric_summary,
     overview,
 )
@@ -241,3 +244,57 @@ def test_class_profile_gives_constant_feature_zero_spread() -> None:
     df = pl.DataFrame({"flat": [5.0, 5.0, 5.0, 5.0], "y": ["a", "a", "b", "b"]})
     row = class_profile(df, ["flat"], "y").row(0, named=True)
     assert row["spread_sd"] in (0.0, None)
+
+
+def test_identical_class_means_give_total_overlap_and_chance_accuracy() -> None:
+    """d = 0: the two curves are the same curve."""
+    df = pl.DataFrame({"x": [1.0, 2.0, 1.0, 2.0], "y": ["a", "a", "b", "b"]})
+    row = class_profile(df, ["x"], "y").row(0, named=True)
+    assert row["spread_sd"] == 0.0
+    assert row["overlap_pct"] == 100.0
+    assert row["best_split_acc"] == 0.5
+
+
+def test_overlap_matches_the_closed_form() -> None:
+    """OVL = 2*phi(-d/2); best single-split accuracy = phi(d/2)."""
+    df = pl.DataFrame({"x": [0.0, 2.0, 2.0, 4.0], "y": ["a", "a", "b", "b"]})
+    row = class_profile(df, ["x"], "y").row(0, named=True)
+    d = row["spread_sd"]
+    expected_acc = 0.5 * (1.0 + math.erf((d / 2.0) / math.sqrt(2.0)))
+    assert row["best_split_acc"] == pytest.approx(expected_acc, abs=5e-4)
+    assert row["overlap_pct"] == pytest.approx(100.0 * 2.0 * (1.0 - expected_acc), abs=0.1)
+
+
+# --- numeric_correlation ------------------------------------------------------
+
+
+def test_correlation_finds_a_perfect_monotone_pair() -> None:
+    """Spearman is rank-based, so a curved but monotone relation still reads 1.0."""
+    df = pl.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "b": [1.0, 4.0, 9.0, 16.0]})
+    row = numeric_correlation(df, ["a", "b"]).row(0, named=True)
+    assert row["spearman"] == pytest.approx(1.0)
+
+
+def test_correlation_sorts_by_absolute_value_so_negatives_rank() -> None:
+    df = pl.DataFrame(
+        {
+            "a": [1.0, 2.0, 3.0, 4.0],
+            "b": [4.0, 3.0, 2.0, 1.0],
+            "c": [1.0, 1.0, 2.0, 2.0],
+        }
+    )
+    out = numeric_correlation(df, ["a", "b", "c"])
+    top = out.row(0, named=True)
+    assert {top["col_a"], top["col_b"]} == {"a", "b"}
+    assert top["spearman"] == pytest.approx(-1.0)
+
+
+def test_correlation_drops_nulls_pairwise() -> None:
+    df = pl.DataFrame({"a": [1.0, 2.0, None, 4.0], "b": [1.0, 2.0, 3.0, None]})
+    row = numeric_correlation(df, ["a", "b"]).row(0, named=True)
+    assert row["n_pairs"] == 2
+
+
+def test_correlation_returns_all_pairs() -> None:
+    df = pl.DataFrame({"a": [1.0, 2.0], "b": [2.0, 1.0], "c": [1.0, 3.0], "d": [4.0, 1.0]})
+    assert numeric_correlation(df, ["a", "b", "c", "d"]).height == 6

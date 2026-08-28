@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from itertools import combinations
-from typing import Any, cast
+from math import erf, sqrt
+from typing import Any, Literal, cast
 
 import numpy as np
 import polars as pl
@@ -22,6 +23,11 @@ NULL_LABEL = "<null>"
 
 def _classes(df: pl.DataFrame, target: str) -> list[str]:
     return sorted(str(value) for value in df[target].drop_nulls().unique().to_list())
+
+
+def _normal_cdf(x: float) -> float:
+    """Standard normal CDF, via erf — avoids pulling in scipy for one function."""
+    return 0.5 * (1.0 + erf(x / sqrt(2.0)))
 
 
 def _level_sort_key(level: object, declared: list[str] | None) -> tuple[int, Any]:
@@ -282,8 +288,18 @@ def class_profile(df: pl.DataFrame, cols: Sequence[str], target: str) -> pl.Data
     separate the classes on its own and a density plot will show three curves on top of
     each other.
 
+    ``overlap_pct`` and ``best_split_acc`` restate ``spread_sd`` in units you can act on.
+    Modelling each class as a normal with equal variance and means ``d`` standard
+    deviations apart, the shared area under the two curves is ``2 * Phi(-d/2)``, and the
+    best accuracy a *single threshold* on that feature can reach (equal priors) is
+    ``Phi(d/2)``. So d = 2.1 means one cut separates the extreme classes ~86% of the
+    time; d = 0.05 means a coin flip. Both assume normality and equal variance.
+
     It only sees *means*. Two classes with equal means and different variances score
     zero here and are still separable — that is the case where a plot beats a table.
+    With more than two classes it compares only the extremes, so a feature that splits
+    one class off while leaving the other two superimposed scores the same as one that
+    separates all three. Read the per-class means, not just the ranking.
     """
     classes = _classes(df, target)
     means = df.group_by(target).agg([pl.col(col).mean().alias(col) for col in cols])
@@ -301,6 +317,49 @@ def class_profile(df: pl.DataFrame, cols: Sequence[str], target: str) -> pl.Data
                 **{f"mean_{cls}": round(by_class[cls][col], 3) for cls in classes},
                 "overall_std": round(std, 3) if std else None,
                 "spread_sd": round(spread, 4) if spread is not None else None,
+                "overlap_pct": (
+                    round(100.0 * 2.0 * _normal_cdf(-spread / 2.0), 1)
+                    if spread is not None
+                    else None
+                ),
+                "best_split_acc": (
+                    round(_normal_cdf(spread / 2.0), 3) if spread is not None else None
+                ),
             }
         )
     return pl.DataFrame(records).sort("spread_sd", descending=True, nulls_last=True)
+
+
+def numeric_correlation(
+    df: pl.DataFrame, cols: Sequence[str], method: Literal["pearson", "spearman"] = "spearman"
+) -> pl.DataFrame:
+    """Pairwise correlation between numeric columns, strongest first.
+
+    Decision: which features are redundant. Two columns correlated above ~0.95 are one
+    feature wearing two hats — the second adds no information, splits the importance
+    between them, and destabilises any linear model in the blend.
+
+    Spearman by default: it is rank-based, so it catches monotone-but-curved
+    relationships that Pearson underestimates, and it is unmoved by outliers. Nulls are
+    dropped pairwise, so each pair uses every row where *both* values are present.
+
+    A GBDT tolerates redundancy far better than a linear model does — this is mostly a
+    warning about feature importance being split, and about what to prune before adding
+    a linear model to the blend.
+    """
+    records: list[dict[str, Any]] = []
+    for col_a, col_b in combinations(cols, 2):
+        pair = df.select(col_a, col_b).drop_nulls()
+        value = (
+            pair.select(pl.corr(col_a, col_b, method=method)).item() if pair.height > 1 else None
+        )
+        records.append(
+            {
+                "col_a": col_a,
+                "col_b": col_b,
+                "n_pairs": pair.height,
+                method: round(value, 4) if value is not None else None,
+                "abs": round(abs(value), 4) if value is not None else None,
+            }
+        )
+    return pl.DataFrame(records).sort("abs", descending=True, nulls_last=True)
