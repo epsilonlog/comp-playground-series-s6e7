@@ -312,6 +312,47 @@ than the encoding choice, is the reason to measure the per-level target rate.
 
 ---
 
+## 2026-08-28 — Correction: the question is contiguity, not monotonicity
+
+I gave the rule "non-monotone target rate → one-hot beats ordinal". Real data showed it
+is too crude.
+
+`stress_level` came back strongly non-monotone in the majority class (0.80 → 0.99 →
+0.72, peaking in the middle). By the rule, ordinal encoding should lose. It doesn't —
+because the levels that *matter* are the two extremes, and a threshold split isolates
+extremes perfectly:
+
+    x <= 0   →   {low}          ✓ where the minority class "fit" lives
+    x >  1   →   {high}         ✓ where "unhealthy" lives
+    {medium} alone               ✗ unavailable — but medium is the uninformative level
+
+The right question is not "is the rate monotone" but **"are the levels I need to isolate
+contiguous in this ordering?"** Monotonicity is a sufficient condition for that, not a
+necessary one. A U-shape whose interesting levels sit at the ends is perfectly served by
+an ordinal encoding; a shape whose interesting level sits in the middle is not.
+
+Monotonicity remains the requirement for a *monotone constraint* — that part stands. The
+two are separate questions and I had collapsed them.
+
+---
+
+## 2026-08-28 — Equal null counts are not evidence of a shared mask
+
+Two columns showed exactly 6,901 nulls in train and exactly 2,958 in test. I inferred a
+shared missingness mask. The co-occurrence check refuted it: their joint missingness sat
+at the independence baseline.
+
+The real explanation was arithmetic. 690,088 × 1% = 6,900.88 → 6,901, and
+295,753 × 1% = 2,957.53 → 2,958. The generator nulls a **fixed proportion per column,
+rounded**, drawing rows independently. Identical rates produce identical *counts*
+without any shared rows at all.
+
+Lesson: equal counts are consistent with both a shared mask and independent draws at the
+same rate. Only the joint count distinguishes them — compare observed co-missingness
+against `n · p_a · p_b`, never counts against each other.
+
+---
+
 ## 2026-08-28 — Why reimplement a metric sklearn already has
 
 Not because sklearn is wrong — sklearn is the **reference**, and the unit test asserts
