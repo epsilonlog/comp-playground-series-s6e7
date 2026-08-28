@@ -353,6 +353,30 @@ against `n · p_a · p_b`, never counts against each other.
 
 ---
 
+## 2026-08-28 — Summarise with a robust statistic, not an extremal one
+
+I measured a column's quantisation grid as the **minimum** gap between adjacent distinct
+values. Two columns came back looking ragged — a 0.1 grid reported as 0.03, a 0.01 grid
+reported as 0.001.
+
+Both were clean. Each had exactly **one** contaminating off-grid value, which splits a
+single normal step into two smaller ones. One row in 690,000 moved the reported statistic
+by a factor of ten.
+
+The median gap was exactly right in every case (526 of 536 gaps were precisely 0.1). The
+tell was the gap histogram: a `0.07 + 0.03` pair adding to exactly one normal step.
+
+General rule: **any summary defined as a min or a max is a summary of your worst data
+point, not of your data.** Use a quantile when you want to describe the bulk. If the
+extreme is genuinely interesting, report it as its own column — that way contamination
+becomes visible instead of silently corrupting the statistic you meant to read.
+
+Related: a spike anywhere in the range is invisible to bound-based checks. Share-of-the-
+modal-value catches zero-inflation, sentinels, and defaults wherever they sit; percent-
+at-min only catches them if the spike happens to land on a boundary.
+
+---
+
 ## 2026-08-28 — Why reimplement a metric sklearn already has
 
 Not because sklearn is wrong — sklearn is the **reference**, and the unit test asserts
