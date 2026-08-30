@@ -142,6 +142,46 @@ def submission_frame(test: pl.DataFrame, test_proba: NDArray[np.floating]) -> pl
     )
 
 
+def slice_report(
+    exp_id: str,
+    *,
+    train: pl.DataFrame | None = None,
+    oof_dir: Path = OOF_DIR,
+) -> pl.DataFrame:
+    """Balanced accuracy per null-count slice for one logged experiment's OOF.
+
+    The watchdog the fold decision left behind (folds.py): the one way the shift could
+    bite is a missing-data-handling change that behaves differently on null-heavy rows,
+    and this table is where that would show first. `k>=3` is the shifted bucket —
+    2.2% of train, 4.6% of test.
+    """
+    train = io.load_train() if train is None else train
+    proba = np.load(oof_dir / f"{exp_id}.npy")
+    y = features.encode_target(train[io.TARGET])
+    pred = proba.argmax(axis=1)
+    buckets = folds.null_bucket(train).to_numpy()
+
+    def describe(label: str, sel: NDArray[np.bool_]) -> dict[str, object]:
+        row: dict[str, object] = {
+            "slice": label,
+            "n_rows": int(sel.sum()),
+            "balanced_acc": round(metric.balanced_accuracy(y[sel], pred[sel]), 5),
+        }
+        matrix, _ = metric.confusion(y[sel], pred[sel], labels=range(len(io.CLASSES)))
+        support = matrix.sum(axis=1)
+        for i, cls in enumerate(io.CLASSES):
+            row[f"recall_{cls}"] = (
+                round(float(matrix[i, i] / support[i]), 4) if support[i] else None
+            )
+        return row
+
+    rows = [describe("all", np.ones(len(y), dtype=bool))]
+    for b in range(folds.NULL_BUCKET_CAP + 1):
+        label = f"k>={b}" if b == folds.NULL_BUCKET_CAP else f"k={b}"
+        rows.append(describe(label, buckets == b))
+    return pl.DataFrame(rows)
+
+
 def _assert_class_order(model: object, n_classes: int) -> None:
     """predict_proba columns must be class codes 0..K-1 or every saved OOF lies."""
     classes = getattr(model, "classes_", None)

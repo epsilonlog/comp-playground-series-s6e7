@@ -453,6 +453,41 @@ def oof_diagnostics(
     return fig
 
 
+def resolution_demo(
+    se: float = 0.00103, *, effects: Sequence[float] = (0.0005, 0.002, 0.005)
+) -> Figure:
+    """Decision: which effect sizes this harness can confirm, and which it cannot.
+
+    The bell is the sampling distribution of `cv_mean` when NOTHING changed — pure
+    validation luck, width `se` (~0.001 here, derived in LEARNING.md). Judge a candidate
+    gain by how far up the tail it sits: inside ~2 SE it is indistinguishable from luck
+    on a single run; far outside, a result. Paired comparisons on the frozen folds
+    resolve finer than this single-score picture — the bell is the conservative bar.
+    """
+    x = np.linspace(-3.5 * se, max(effects) + 3.0 * se, 600)
+    pdf = np.exp(-0.5 * (x / se) ** 2)
+
+    fig, (ax,) = _grid(1, panel=(7.5, 3.8))
+    ax.fill_between(x, pdf, color="#CCD9EA", label="cv_mean wobble when nothing changed")
+    for e, color in zip(effects, PALETTE[1:], strict=False):
+        z = e / se
+        verdict = "luck" if z < 2 else ("borderline" if z < 3 else "real")
+        ax.axvline(e, color=color, lw=1.5)
+        ax.annotate(
+            f"+{e:.4f}\n{z:.1f} SE - {verdict}",
+            (e, 1.04),
+            ha="center",
+            fontsize=8,
+            color=color,
+        )
+    ax.set_ylim(0, 1.3)
+    ax.set_yticks([])
+    ax.set_xlabel("change in cv_mean")
+    ax.set_title(f"what a gain must clear - SE(cv_mean) = {se:.5f}")
+    ax.legend(fontsize=8, loc="upper right")
+    return fig
+
+
 def importance(model: Any, feature_names: Sequence[str], top: int = 30) -> Figure:
     """Decision: what to prune, and whether a leak exists (one feature towering is one).
 

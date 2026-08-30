@@ -89,6 +89,17 @@ def test_test_predictions_average_the_folds(harness: dict[str, object]) -> None:
     assert set(sub[io.TARGET].unique().to_list()) <= set(io.CLASSES)
 
 
+def test_slice_report_covers_all_rows_once(harness: dict[str, object]) -> None:
+    from s6e7.cv import slice_report
+
+    result = _run(harness)
+    report = slice_report("exp_9001", train=harness["train"], oof_dir=result.oof_path.parent)  # type: ignore[arg-type]
+    assert report["slice"].to_list()[0] == "all"
+    assert report["n_rows"][0] == 400
+    assert sum(report["n_rows"].to_list()[1:]) == 400
+    assert 0.0 <= report["balanced_acc"][0] <= 1.0
+
+
 def test_registry_rejects_unknown_model() -> None:
     with pytest.raises(KeyError, match="unknown model"):
         registry.build("gpt7")

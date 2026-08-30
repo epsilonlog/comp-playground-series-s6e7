@@ -27,6 +27,11 @@ def test_every_plot_returns_a_figure() -> None:
     assert all(isinstance(f, Figure) for f in figs)
 
 
+def test_resolution_demo_is_data_free() -> None:
+    assert isinstance(plots.resolution_demo(), Figure)
+    assert isinstance(plots.resolution_demo(0.002, effects=(0.001, 0.01)), Figure)
+
+
 def test_importance_accepts_one_or_many_models() -> None:
     train = make_train(n=200)
     matrix, names = features.baseline_matrix(train)
