@@ -16,6 +16,8 @@ keep the worked numbers, drop the scaffolding.
 | [Technique](#2026-08-28--technique) | small mechanics worth not re-deriving |
 | [Joint shift](#2026-08-28--marginals-cannot-see-a-joint-shift) | 13 identical marginals, one clustered joint — why adversarial validation exists |
 | [Acting on a shift](#2026-08-28--a-shift-is-only-a-fold-problem-if-it-moves-the-ranking) | finding one is a question, not an answer — price the correction against the resolution |
+| [SD vs SE](#2026-08-30--sd-describes-individuals-se-describes-the-estimate) | SD spreads individuals, SE wobbles the average — compare group rates in SEs |
+| [The bmi misread](#2026-08-30--misread-which-way-the-bmi-null-effect-points) | missing bmi means *less* unhealthy, and the count was never the carrier |
 
 ---
 
@@ -541,6 +543,13 @@ nobody checks.
 
 The whole thing reduces to arithmetic against the resolution you already computed.
 
+The framing that makes it mechanical: **a score is a weighted average over slices, and CV
+and test weight the same two slices differently** — CV = 0.978·light + 0.022·heavy, test =
+0.954·light + 0.046·heavy. Price every option by moving only the weights. For one model
+that is a *level* move, at most (0.0455 − 0.0217)·0.10 ≈ 0.002 — and it hits every model
+identically, so comparisons subtract it away. For two models it is a *ranking* move, and
+only their disagreement on the heavy slice is exposed to it.
+
 The shifted region here was rows with ≥3 nulls: 2.17% of train, 4.55% of test. Two models
 tied overall but differing by δ on that slice have the gap between them moved by
 `(0.0455 − 0.0217)·δ = 0.0238·δ`. Set that against the 0.001 resolution:
@@ -606,3 +615,42 @@ it is just a number you have no opinion about — the same move as predicting `c
 **The general shape: a diagnostic that changes no decision has told you something.** The
 negative result cost two checks and bought a design you can defend, which is worth more
 than the same design chosen by not looking.
+
+---
+
+## 2026-08-30 — SD describes individuals, SE describes the estimate
+
+The rate tables report `mean ± SE`, not `mean ± SD`, and the two answer different
+questions. SD is the spread of *individual rows*; SE = SD/√n is the wobble of the *group
+average* computed from them. Comparing group rates is a question about averages, so SE is
+the yardstick.
+
+For a 0/1 outcome the distinction is stark: SD = √(p(1−p)) is fully determined by the mean
+itself. At p = 8.5% the SD is **28 percentage points** — "8.5 ± 28" says nothing the 8.5
+didn't. The SE is where the information lives, because it also knows n.
+
+Reading a table with it:
+
+    8.469 ± 0.047  vs  8.892 ± 0.26    gap 0.42pp, combined SE √(0.047² + 0.26²) ≈ 0.26
+                                       → 1.6 SE → noise
+    8.47  ± 0.05   vs  2.79  ± 0.20    → ~28 SE → unambiguously real
+
+Rule of thumb: two rates within ~2 combined SEs are the same rate until more data says
+otherwise.
+
+---
+
+## 2026-08-30 — Misread: which way the bmi-null effect points
+
+First reading of the notebook-03 table: "more nulls correlates with unhealthy." Backwards
+on both halves. Rows *missing* `bmi` are **less** often unhealthy (2.79% vs 8.47%) and
+*more* often fit (8.3% vs 5.7%) — plausibly, people whose BMI never got measured skew
+toward the ones nobody was worried about. And the null *count* is not the carrier at all:
+split on `bmi_is_null` and the rate is flat in k inside each half. The apparent count
+effect in the unsplit table was one indicator dragging the average — the general trap of
+an aggregate trend that dissolves when you condition on its confounder, and rows with more
+nulls are more likely to include `bmi` among them by simple arithmetic.
+
+The fold decision never needed the direction anyway. It needed exactly two facts: the
+quantity that shifted (the count) predicts nothing; the quantity that predicts
+(`bmi_is_null`) did not shift.
