@@ -237,3 +237,28 @@ winning 0.95085 — a gap of ~0.0011, one resolution unit).
 - **The board itself validated CV-trust.** 4th place sat at public rank 414 and held;
   places 3–8 all display private 0.95084. On a 3-choice discrete metric the public LB
   is binomial noise at ±0.001–0.002 — a smoke test, not a steering wheel.
+
+## 2026-08-31 — When a neural net beats GBDTs on tabular data (FT-Transformer)
+
+- **Mechanism:** FT-Transformer (Gorishniy et al. 2021) embeds every feature — numeric
+  via periodic (PLR) embeddings, categorical via learned embeddings — as a d-dim token,
+  prepends a [CLS] token, and lets attention learn feature interactions that a tree must
+  carve out split by split. Interactions are *learned*, not enumerated.
+- **The regime where it wins:** big N (690k here — below ~100k rows GBDTs win almost by
+  default), numeric-heavy features where embeddings beat splits, and a GPU. Here it beat
+  the field's best GBDT 0.95063 vs 0.95016 — half the total gap between our final and
+  the winner. It is a *competitor* to XGBoost only in this regime; on small or quick
+  jobs the GBDT baseline still comes first.
+- **The other reason to bring one: decorrelation.** Two GBDTs correlate ≈0.999 on OOF;
+  this FT-Transformer vs an XGBoost of the same CV: 0.9985, disagreeing on 0.64% of
+  rows. That is the independent error source our two-GBDT blend measurably lacked —
+  NNs earn their place in the ensemble even when they lose head-to-head.
+- **Kawamata's notebook is a model of honest measurement**, and it independently
+  confirms three of our own ledger entries: training-time class weighting is an *exact*
+  substitute for the post-hoc prior rule (ΔBA +0.00001 — our routes A/B convergence);
+  explicit missingness flags are redundant once NaN gets its own encoded level (our
+  exp_0005 null); and per-value TE screened at 70k reads −0.0017 but is +0.0012 at
+  full scale — the trap our 10%-subsample local screens would walk straight into.
+- **Also transferable:** fixed-epoch training instead of best-checkpoint restore (the
+  restore is +0.0003 of optimism, not skill), and stop on logloss, never on a noisy
+  discrete metric like balanced accuracy (−0.012).
