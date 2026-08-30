@@ -207,3 +207,33 @@ short: worked numbers stay, scaffolding goes.
   resolution of the top, take the fewest moving parts. Twelve experiments ended at
   *baseline + one parameter* — and only the ladder makes that sentence a measurement
   instead of a guess.
+
+## 2026-08-31 — What the winners did differently (step-8 writeup review)
+
+Read the 2nd, 4th, 11th, and 36th place writeups against our final (private 0.94979 vs
+winning 0.95085 — a gap of ~0.0011, one resolution unit).
+
+- **The decision rule was everyone's biggest lever, and we found it independently.**
+  4th place: argmax(p/prior) moved OOF 0.89187 → 0.95063 (+0.059). 2nd place:
+  Nelder-Mead multipliers, 0.88913 → 0.95074 (+0.062). Ours: +0.077. Everything else
+  in every writeup fights over the remaining ~0.001. Our "fix the rule before
+  laddering" carry-forward is exactly what the field's results confirm.
+- **The missing ~0.001 had two named sources.** (1) *Exact-value target encoding*:
+  the synthetic generator resamples numeric values from a finite support, so a
+  repeated `step_count` value is a high-cardinality category; 13 cols × 3 classes =
+  39 fold-fitted TE features moved XGBoost 0.94890 → 0.94956 (+0.0007). This is signal
+  from the data-generating process itself — a genuinely new information source, the
+  kind our stopping rule demanded. (2) *FT-Transformer* (public notebook, CV 0.95063):
+  a neural model beat every GBDT; both 2nd and 4th built on it.
+- **Screening trap, directly relevant to our 10% local subsamples:** exact-value TE
+  read −0.0017 on a 70k-row screen but +0.0012 on full data. Per-value statistics need
+  the repeats to exist. Match the cheap experiment to the idea — shrink folds or
+  epochs, never the rows that carry the signal.
+- **Ensemble size bought almost nothing.** 58 models + CatBoost stacker (36th) →
+  0.95087 OOF; 18 models + SLSQP weights (2nd) → 0.95074; a single FT-Transformer
+  family (4th) → 0.95063 and private #4. Diversity (NN + GBDT), not count, is what
+  made their blends pay at all — consistent with our co-error measurement killing the
+  two-GBDT blend.
+- **The board itself validated CV-trust.** 4th place sat at public rank 414 and held;
+  places 3–8 all display private 0.95084. On a 3-choice discrete metric the public LB
+  is binomial noise at ±0.001–0.002 — a smoke test, not a steering wheel.
