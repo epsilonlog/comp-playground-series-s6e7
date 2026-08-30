@@ -13,6 +13,8 @@ result:
   fold_scores: [0.87121, 0.87512, 0.87503, 0.87089, 0.87228]
   runtime_s: 58
   per_class_recall: {at-risk: 0.993, fit: 0.825, unhealthy: 0.801}
+  lb_public: 0.87210   # CV - 0.00081
+  lb_private: 0.87171  # CV - 0.00120 (visible because the competition has ended)
   notes: >
     Reliability curves sit on the diagonal (well calibrated). Errors concentrate in
     fit->at-risk (0.172) and unhealthy->at-risk (0.198) - the training-prior effect the

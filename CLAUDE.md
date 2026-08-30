@@ -44,8 +44,10 @@ Facts a fresh session needs; do not re-derive or reopen without new evidence.
   target-orthogonal. `bmi_is_null` carries the only missingness signal (unhealthy 2.79%
   when null vs 8.47% present) and its rate is identical in both files. Decision: no fold
   change; watch per-`null_bucket` recall on missing-data-handling experiments.
-- **Standing prediction:** public LB lands ~0.001–0.002 *below* CV. A ~0.02 gap means
-  something this analysis doesn't explain.
+- **Standing prediction — confirmed 2026-08-30:** predicted LB 0.001–0.002 below CV;
+  exp_0001 landed public 0.87210 (CV − 0.0008) and private 0.87171 (CV − 0.0012).
+  CV↔LB correlation is trusted; select by CV. (Private scores are visible because the
+  competition has ended — this is a late-submission practice run; LB rank is moot.)
 - **Decision rule:** argmax is not settled — a per-class multiplier search on OOF is the
   planned free-score step after the baseline (2 free parameters at K=3).
 
