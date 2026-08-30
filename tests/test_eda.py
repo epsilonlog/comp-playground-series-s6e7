@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import polars as pl
 import pytest
 
@@ -13,9 +14,24 @@ from s6e7.eda import (
     missing_vs_target,
     null_count_vs_target,
     numeric_correlation,
+    numeric_shift,
     numeric_summary,
     overview,
 )
+
+
+def test_numeric_shift_max_bin_dev_ignores_a_pure_null_gap() -> None:
+    """Identical non-null distributions + very different null rates must read ~0 dev."""
+    rng = np.random.default_rng(0)
+    values = rng.normal(size=20_000)
+    with_nulls = [None] * 8_000 + [float(v) for v in values[8_000:]]
+    out = numeric_shift(
+        pl.DataFrame({"x": values}),
+        pl.DataFrame({"x": pl.Series(with_nulls, dtype=pl.Float64)}),
+        ["x"],
+    )
+    assert out["max_bin_dev"][0] < 0.05
+    assert abs(out["null_gap"][0] - 40.0) < 1.0
 
 
 def test_overview_shape_and_columns() -> None:

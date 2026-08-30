@@ -1,0 +1,20 @@
+# exp_0003 — immutable once run (2026-08-30)
+exp_id: exp_0003
+model: lgbm
+params: {n_estimators: 500, learning_rate: 0.05}
+features: baseline
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0001
+changed: "capacity: 500 trees at lr 0.05"
+result:
+  cv_mean: 0.87682
+  cv_std: 0.00217
+  fit_mean: 0.89288
+  runtime_s: 627
+  paired_vs_parent: {diff: +0.00391, fold_sd: 0.00071, t: 12.4}
+  notes: >
+    Real (+0.0039, t=12.4). Fit-vs-val gap widened 0.005 -> 0.016 - capacity is being
+    spent partly on memorising, but validation still improved, so the defaults were
+    underfitting. Kept for the combo (exp_0007); further capacity has visibly
+    diminishing returns per minute of runtime.

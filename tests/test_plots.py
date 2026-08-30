@@ -27,6 +27,16 @@ def test_every_plot_returns_a_figure() -> None:
     assert all(isinstance(f, Figure) for f in figs)
 
 
+def test_train_test_shift_shows_test_only_levels() -> None:
+    import polars as pl
+
+    train = pl.DataFrame({"c": ["A"] * 90 + ["B"] * 10})
+    test = pl.DataFrame({"c": ["A"] * 80 + ["B"] * 10 + ["NEW"] * 10})
+    fig = plots.train_test_shift(train, test, ["c"])
+    labels = [t.get_text() for t in fig.axes[0].get_xticklabels()]
+    assert "NEW" in labels
+
+
 def test_experiment_compare_reads_a_ledger_frame() -> None:
     import polars as pl
 

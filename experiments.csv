@@ -1,2 +1,8 @@
 exp_id,date,config,model,folds,cv_mean,cv_std,lb_public,oof_path,runtime_s,parent,changed
 exp_0001,2026-08-30,configs/exp_0001.yaml,lgbm,stratified5_seed42,0.87291,0.00205,0.87210,oof/exp_0001.npy,58,,"first baseline: LGBM defaults, raw features, argmax"
+exp_0002,2026-08-30,configs/exp_0002.yaml,lgbm,stratified5_seed42,0.87378,0.00223,,oof/exp_0002.npy,116,exp_0001,native categorical handling (LGBM categorical splits)
+exp_0003,2026-08-30,configs/exp_0003.yaml,lgbm,stratified5_seed42,0.87682,0.00217,,oof/exp_0003.npy,627,exp_0001,capacity: 500 trees at lr 0.05
+exp_0004,2026-08-30,configs/exp_0004.yaml,lgbm,stratified5_seed42,0.94956,0.00138,,oof/exp_0004.npy,232,exp_0001,class_weight=balanced (training-route prior correction)
+exp_0005,2026-08-30,configs/exp_0005.yaml,lgbm,stratified5_seed42,0.87291,0.00205,,oof/exp_0005.npy,206,exp_0001,add 13 missingness indicator columns
+exp_0006,2026-08-30,configs/exp_0006.yaml,lgbm,stratified5_seed42,0.87285,0.00200,,oof/exp_0006.npy,197,exp_0001,add 3 activity-intensity ratios (from exp_0001 error profile)
+exp_0007,2026-08-30,configs/exp_0007.yaml,lgbm,stratified5_seed42,0.87742,0.00186,,oof/exp_0007.npy,433,exp_0003,compose winners: capacity (exp_0003) + native cats (exp_0002)

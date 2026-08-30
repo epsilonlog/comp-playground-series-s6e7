@@ -115,6 +115,31 @@ def test_blend_of_identical_parents_scores_like_the_parent(harness: dict[str, ob
     assert "blend(exp_9001+exp_9001)" in ledger.read_text(encoding="utf-8")
 
 
+def test_blend_refuses_a_conflicting_reuse_of_an_exp_id(harness: dict[str, object]) -> None:
+    from s6e7.cv import run_blend
+
+    _run(harness)
+    _run(harness, exp_id="exp_9002")
+    kwargs = {
+        "train": harness["train"],
+        "folds_path": harness["folds_path"],
+        "oof_dir": harness["oof_dir"],
+        "ledger": harness["ledger"],
+    }
+    run_blend("exp_9010", ["exp_9001", "exp_9002"], **kwargs)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="pick a new exp_id"):
+        run_blend("exp_9010", ["exp_9001"], **kwargs)  # type: ignore[arg-type]
+
+
+def test_oof_functions_refuse_a_reordered_frame(harness: dict[str, object]) -> None:
+    from s6e7.cv import slice_report
+
+    result = _run(harness)
+    shuffled = harness["train"].sample(fraction=1.0, shuffle=True, seed=3)  # type: ignore[union-attr]
+    with pytest.raises(ValueError, match="canonical"):
+        slice_report("exp_9001", train=shuffled, oof_dir=result.oof_path.parent)
+
+
 def test_run_rule_cross_fits_and_is_idempotent(harness: dict[str, object]) -> None:
     from s6e7.cv import run_rule
 
@@ -133,6 +158,22 @@ def test_run_rule_cross_fits_and_is_idempotent(harness: dict[str, object]) -> No
     n_rows = len(ledger.read_text(encoding="utf-8").strip().splitlines())
     run_rule("exp_9020", "exp_9001", **kwargs)  # type: ignore[arg-type]
     assert len(ledger.read_text(encoding="utf-8").strip().splitlines()) == n_rows
+
+
+def test_paired_diff_of_an_experiment_with_itself_is_zero(harness: dict[str, object]) -> None:
+    from s6e7.cv import paired_diff
+
+    result = _run(harness)
+    table = paired_diff(
+        "exp_9001",
+        "exp_9001",
+        train=harness["train"],  # type: ignore[arg-type]
+        oof_dir=result.oof_path.parent,
+        folds_path=harness["folds_path"],  # type: ignore[arg-type]
+    )
+    assert table.height == 6  # 5 folds + mean row
+    assert table["diff"].to_list() == [0.0] * 6
+    assert table["fold"].to_list()[-1] == "mean"
 
 
 def test_slice_report_covers_all_rows_once(harness: dict[str, object]) -> None:

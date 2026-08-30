@@ -1,0 +1,19 @@
+# exp_0006 — immutable once run (2026-08-30)
+exp_id: exp_0006
+model: lgbm
+params: {}
+features: ratios           # baseline + cal_per_step, cal_per_exmin, steps_per_exmin
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0001
+changed: "add 3 activity-intensity ratios (from exp_0001 error profile)"
+result:
+  cv_mean: 0.87285
+  cv_std: 0.00200
+  fit_mean: 0.87829
+  runtime_s: 197
+  paired_vs_parent: {diff: -0.00006, fold_sd: 0.00048, t: -0.3}
+  notes: >
+    Noise (t=-0.3). The error profile said fit-recall dies at low activity; the ratio
+    hypothesis was a reasonable arrow from that observation, and it missed - the low-step
+    fit rows are apparently not high-intensity rows. Logged so week 3 does not retry it.

@@ -1,0 +1,21 @@
+# exp_0004 — immutable once run (2026-08-30)
+exp_id: exp_0004
+model: lgbm
+params: {class_weight: balanced}
+features: baseline
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0001
+changed: "class_weight=balanced (training-route prior correction)"
+result:
+  cv_mean: 0.94956
+  cv_std: 0.00138
+  fit_mean: 0.95110
+  runtime_s: 232
+  paired_vs_parent: {diff: +0.07665, fold_sd: 0.00213, t: 80.4}
+  notes: >
+    The single largest effect in the ladder (+0.077): under balanced weights the argmax
+    IS the right decision rule for balanced accuracy, so this is prior correction done
+    during training. Route B (searched multipliers after training, exp_0009) corrects
+    the same thing post-hoc - the two routes are compared head-to-head in notebook 07
+    and only one of them goes in the final (composing both double-corrects).

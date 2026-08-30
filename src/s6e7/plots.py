@@ -273,14 +273,15 @@ def train_test_shift(train: pl.DataFrame, test: pl.DataFrame, cols: Sequence[str
                 ax.stairs(hist, edges, color=color, label=label)
             ax.set_title(f"{col} — KS {dist:.4f}", fontsize=10)
         else:
-            pa = (
-                train[col]
-                .fill_null("(null)")
-                .value_counts(normalize=True)
+            pa = train[col].fill_null("(null)").value_counts(normalize=True)
+            pb = test[col].fill_null("(null)").value_counts(normalize=True)
+            # Full join: a level present in only one file must still get a bar — a
+            # brand-new test-only category is the most alarming categorical shift.
+            merged = (
+                pa.join(pb, on=col, how="full", coalesce=True)
+                .fill_null(0.0)
                 .sort("proportion", descending=True)
             )
-            pb = test[col].fill_null("(null)").value_counts(normalize=True)
-            merged = pa.join(pb, on=col, how="left", coalesce=True).fill_null(0.0)
             x = np.arange(merged.height)
             ax.bar(x - 0.2, merged["proportion"] * 100, 0.4, color=TRAIN_COLOR, label="train")
             ax.bar(x + 0.2, merged["proportion_right"] * 100, 0.4, color=TEST_COLOR, label="test")

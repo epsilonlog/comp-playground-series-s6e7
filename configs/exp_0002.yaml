@@ -1,0 +1,20 @@
+# exp_0002 — immutable once run (2026-08-30)
+exp_id: exp_0002
+model: lgbm
+params: {categorical_feature: [7, 8, 9, 10, 11, 12]}
+features: native_cats      # declared codes, categorical nulls -> -1 (negative = missing)
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0001
+changed: "native categorical handling (LGBM categorical splits)"
+result:
+  cv_mean: 0.87378
+  cv_std: 0.00223
+  fit_mean: 0.87865
+  runtime_s: 116
+  paired_vs_parent: {diff: +0.00087, fold_sd: 0.00040, t: 4.8}
+  notes: >
+    Unpaired, +0.0009 hides inside the ±0.002 fold noise; paired on the frozen folds all
+    five diffs are positive (t=4.8) - real. Verified categorical splits are active in the
+    booster dump ("decision_type" == "==") despite LightGBM's misleading "will be ignored"
+    warning. Kept for the combo (exp_0007).

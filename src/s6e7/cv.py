@@ -98,6 +98,8 @@ def run(
         raise ValueError(msg)
 
     train = io.load_train() if train is None else train
+    if log:
+        _assert_canonical_order(train)
     started = time.perf_counter()
 
     matrix, _ = features.build_matrix(config.features, train)
@@ -174,9 +176,12 @@ def run_blend(
     already-logged exp_id recomputes the (cheap) scores without appending a second row.
     """
     train = io.load_train() if train is None else train
+    _assert_canonical_order(train)
     started = time.perf_counter()
     w = np.array([1.0] * len(parents) if weights is None else weights, dtype=np.float64)
     w = w / w.sum()
+    config = _blend_config(exp_id, parents, w)
+    already_logged = _assert_no_conflicting_row(ledger, config) if log else False
 
     oof = sum(w_i * np.load(oof_dir / f"{p}.npy") for w_i, p in zip(w, parents, strict=True))
     oof = np.asarray(oof, dtype=np.float64)
@@ -205,7 +210,7 @@ def run_blend(
         test_pred_path=test_pred_path,
         runtime_s=time.perf_counter() - started,
     )
-    if log and not _already_logged(ledger, config := _blend_config(exp_id, parents, w)):
+    if log and not already_logged:
         _append_row(ledger, config, result)
     return result
 
@@ -229,6 +234,14 @@ def run_rule(
     OOF file. Idempotent like `run_blend`.
     """
     train = io.load_train() if train is None else train
+    _assert_canonical_order(train)
+    config = ExperimentConfig(
+        exp_id=exp_id,
+        model=f"rule({parent})",
+        parent=parent,
+        changed="decision rule: per-class multipliers, cross-fitted on OOF",
+    )
+    already_logged = _assert_no_conflicting_row(ledger, config) if log else False
     started = time.perf_counter()
     proba = np.load(oof_dir / f"{parent}.npy")
     y = features.encode_target(train[io.TARGET])
@@ -246,13 +259,7 @@ def run_rule(
         test_pred_path=(path if (path := oof_dir / f"{parent}_test.npy").exists() else None),
         runtime_s=time.perf_counter() - started,
     )
-    config = ExperimentConfig(
-        exp_id=exp_id,
-        model=f"rule({parent})",
-        parent=parent,
-        changed="decision rule: per-class multipliers, cross-fitted on OOF",
-    )
-    if log and not _already_logged(ledger, exp_id):
+    if log and not already_logged:
         _append_row(ledger, config, result)
     return result, final_multipliers
 
@@ -272,6 +279,7 @@ def result_from_oof(
     """
     row = _ledger_row(ledger, exp_id)
     train = io.load_train() if train is None else train
+    _assert_canonical_order(train)
     oof = np.load(oof_dir / f"{exp_id}.npy")
     y = features.encode_target(train[io.TARGET])
     fold = folds.fold_vector(train, path=folds_path)
@@ -289,6 +297,60 @@ def result_from_oof(
         test_pred_path=test_path if test_path.exists() else None,
         runtime_s=float(row["runtime_s"]),
     )
+
+
+def paired_diff(
+    exp_id: str,
+    baseline: str,
+    *,
+    train: pl.DataFrame | None = None,
+    oof_dir: Path = OOF_DIR,
+    folds_path: Path = folds.FOLDS_PATH,
+) -> pl.DataFrame:
+    """Per-fold paired comparison of two logged experiments.
+
+    This is the number the frozen folds exist to provide: both experiments were scored
+    on the identical validation rows, so row luck cancels out of ``diff`` and the
+    comparison resolves gains an absolute ±0.002 fold score cannot. Read the summary
+    row's t (mean/SE over 5 folds, 4 degrees of freedom): |t| > ~3 is real, |t| < 2 is
+    noise no matter how promising the means look.
+
+    Both sides are argmax-scored from their saved OOF probabilities, so like is compared
+    with like. A `run_rule` row's ledger score is *not* argmax — compare rules through
+    their own fold scores instead.
+    """
+    train = io.load_train() if train is None else train
+    _assert_canonical_order(train)
+    y = features.encode_target(train[io.TARGET])
+    fold = folds.fold_vector(train, path=folds_path)
+    proba_a = np.load(oof_dir / f"{exp_id}.npy")
+    proba_b = np.load(oof_dir / f"{baseline}.npy")
+
+    rows: list[dict[str, object]] = []
+    for k, (_, val_idx) in enumerate(folds.iter_folds(fold)):
+        score_a = metric.balanced_accuracy(y[val_idx], proba_a[val_idx].argmax(axis=1))
+        score_b = metric.balanced_accuracy(y[val_idx], proba_b[val_idx].argmax(axis=1))
+        rows.append(
+            {
+                "fold": str(k),
+                exp_id: round(score_a, 5),
+                baseline: round(score_b, 5),
+                "diff": round(score_a - score_b, 5),
+                "t": None,
+            }
+        )
+    diffs = np.array([row["diff"] for row in rows], dtype=np.float64)
+    sd = float(diffs.std(ddof=1))
+    rows.append(
+        {
+            "fold": "mean",
+            exp_id: round(float(np.mean([r[exp_id] for r in rows])), 5),  # type: ignore[arg-type]
+            baseline: round(float(np.mean([r[baseline] for r in rows])), 5),  # type: ignore[arg-type]
+            "diff": round(float(diffs.mean()), 5),
+            "t": round(float(diffs.mean() / (sd / np.sqrt(len(diffs)))), 1) if sd > 0 else None,
+        }
+    )
+    return pl.DataFrame(rows)
 
 
 def submission_frame(test: pl.DataFrame, test_proba: NDArray[np.floating]) -> pl.DataFrame:
@@ -316,6 +378,7 @@ def slice_report(
     2.2% of train, 4.6% of test.
     """
     train = io.load_train() if train is None else train
+    _assert_canonical_order(train)
     proba = np.load(oof_dir / f"{exp_id}.npy")
     y = features.encode_target(train[io.TARGET])
     pred = proba.argmax(axis=1)
@@ -351,6 +414,38 @@ def _blend_config(exp_id: str, parents: list[str], w: NDArray[np.float64]) -> Ex
         parent=parents[0],
         changed=f"blend of {label}{weight_note}",
     )
+
+
+def _assert_canonical_order(train: pl.DataFrame) -> None:
+    """Every ledger OOF file is positional in ascending-id order (io.load_train's order).
+
+    A reordered full-height frame would pass every join check and silently pair labels
+    with other rows' probabilities — a plausible number instead of an error. Refuse it.
+    """
+    if not train[io.ID].is_sorted():
+        msg = (
+            "frame is not in ascending-id order; ledger OOF files are positional in the "
+            "canonical io.load_train() order — pass that frame (or train=None)"
+        )
+        raise ValueError(msg)
+
+
+def _assert_no_conflicting_row(ledger: Path, config: ExperimentConfig) -> bool:
+    """True if this exact experiment is already logged (idempotent recompute is fine).
+
+    Raises when the exp_id is logged with a *different* signature — recomputing would
+    overwrite the OOF file the old row describes, corrupting every later comparison.
+    """
+    if not _already_logged(ledger, config.exp_id):
+        return False
+    row = _ledger_row(ledger, config.exp_id)
+    if row["model"] != config.model or row["changed"] != config.changed:
+        msg = (
+            f"{config.exp_id} is already logged as {row['model']!r} ({row['changed']!r}); "
+            f"this call describes {config.model!r} ({config.changed!r}) — pick a new exp_id"
+        )
+        raise ValueError(msg)
+    return True
 
 
 def _assert_class_order(model: object, n_classes: int) -> None:

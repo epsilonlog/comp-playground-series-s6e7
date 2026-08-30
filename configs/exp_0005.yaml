@@ -1,0 +1,20 @@
+# exp_0005 — immutable once run (2026-08-30)
+exp_id: exp_0005
+model: lgbm
+params: {}
+features: indicators       # baseline + 13 explicit is-null flags
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0001
+changed: "add 13 missingness indicator columns"
+result:
+  cv_mean: 0.87291
+  cv_std: 0.00205
+  fit_mean: 0.87830
+  runtime_s: 206
+  paired_vs_parent: {diff: 0.00000, fold_sd: 0.00000, t: null}
+  notes: >
+    Exactly zero on every fold. The probabilities moved (max |diff| 0.016) but not one
+    argmax decision changed: LightGBM's native NaN routing already expresses everything
+    the explicit flags encode, including the strong bmi_is_null signal. A clean negative
+    result - the indicator idea is now crossed off with evidence, not skipped on vibes.

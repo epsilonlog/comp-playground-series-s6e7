@@ -415,7 +415,6 @@ def numeric_shift(
     **A clean row here is weak evidence.** Marginals cannot see a shift that lives in the
     joint distribution — see `null_count_profile` and `adversarial.run`.
     """
-    n_test_share = test.height / (train.height + test.height)
     rows = []
     for col in cols:
         a = train[col].drop_nulls().to_numpy()
@@ -450,7 +449,10 @@ def numeric_shift(
                 "chi2": chi2,
                 "dof": dof,
                 "p_value": _chi2_sf(chi2, dof),
-                "max_bin_dev": float(np.abs(count_b[keep] / total[keep] - n_test_share).max()),
+                # Deviation is measured against the column's own non-null test share,
+                # not the global row share — otherwise a null-rate gap would offset
+                # every bin and inflate the statistic for identical distributions.
+                "max_bin_dev": float(np.abs(count_b[keep] / total[keep] - share_b).max()),
             }
         )
     return pl.DataFrame(rows).sort("max_bin_dev", descending=True)
