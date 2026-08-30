@@ -13,6 +13,9 @@ short: worked numbers stay, scaffolding goes.
 | [Reading data honestly](#reading-data-honestly) | min/max statistics lie; only the joint distinguishes co-missingness |
 | [Finding a shift](#finding-a-shift) | marginals cannot see a joint shift; control every positive result |
 | [Acting on a shift](#acting-on-a-shift) | price level vs ranking against the resolution — usually change nothing |
+| [Decision beats model](#the-decision-dominates-the-model) | matching the decision to the metric was worth 20× everything else |
+| [The ladder in action](#the-paired-ladder-in-action) | +0.0009 proved real at t=4.8; a perfect zero with a mechanism |
+| [When to stop](#when-to-stop) | decline experiments you couldn't read even if they won |
 
 ---
 
@@ -152,3 +155,55 @@ short: worked numbers stay, scaffolding goes.
   features — the indicator transfers precisely because its rate didn't shift.
 - Write the falsifiable consequence before submitting: test is information-poorer, so
   **LB should land 0.001–0.002 below CV**. A 0.02 gap means a different problem entirely.
+
+## The decision dominates the model
+
+- One change — `class_weight="balanced"` on the untouched baseline — was worth **+0.077**.
+  Every modelling refinement combined (encoding, capacity, features, a second family,
+  blending) was worth +0.005. The confusion matrix showed it on day one: errors flowing
+  into the majority class is argmax maximising the *wrong* metric.
+- **Two routes, one correction, same answer.** Weights during training scored 0.94945;
+  multipliers searched on OOF scored 0.94931 — 0.00014 apart, and the searched values
+  landed on 1/prior because the probabilities were calibrated. Pick one route, never
+  both: composing them double-corrects.
+- **Argmax gains can be a mirage.** Weights-on-defaults (0.94956) tied weights-on-combo
+  (0.94945): the capacity and encoding gains, real at argmax, vanished after correction —
+  they were repairing the same boundary region the correction fixes wholesale. Next
+  competition: fix the metric-correct decision (or evaluate under it) *before* running
+  the ladder, or the ladder optimises differences that will not survive.
+
+## The paired ladder in action
+
+- Native cats gained +0.00087 — invisible against the ±0.002 absolute fold noise, yet
+  **all five paired fold diffs were positive** (sd 0.0004, t = 4.8): real. The ratios
+  experiment read t = −0.3 with alternating signs: noise. Rule of thumb at 4 degrees of
+  freedom: |t| > 3 real, |t| < 2 noise, between: run nothing that depends on it.
+- **A negative with a mechanism is a result.** The missingness indicators moved
+  probabilities by up to 0.016 and flipped essentially zero decisions — NaN routing
+  already encodes what the flags say. Crossed off with evidence; never retried.
+- Winners compose in their own experiment, never by assumption. Here the two gains
+  predicted +0.0048 together and delivered +0.0045 — additive, this time. Checked.
+- The fit-vs-val gap is the under/overfit dial: capacity widened it 0.005 → 0.016 while
+  validation still rose +0.0039 — underfitting, keep going. Validation stalling while the
+  gap grows is the signal to regularise; it never fired here.
+- Anything *searched* on OOF (rules, thresholds, blend weights) gets the same honesty as
+  a model: report the cross-fitted score, and read in-sample minus cross-fitted as its
+  overfit. Two parameters on 550k rows: gap ≈ 0.
+
+## When to stop
+
+- Stopping has criteria, not feelings: (1) every axis probed once and priced; (2) the
+  trajectory flat inside the resolution band — the last four candidates spanned 0.00025
+  against a 0.001 resolution; (3) the next experiments are **unreadable even if they
+  win** — their best case lands inside the tie band, so they could not be selected;
+  decline them (rule-on-xgb was deliberately never run); (4) the error profile shows the
+  rest is irreducible — errors live where no feature separates the classes; (5) CV↔LB
+  calibrated, so the final submission is a point on a known line, not a lottery ticket.
+- Ensemble appetite is a measurement: blending pays in proportion to error
+  *decorrelation*. Two GBDT families were wrong together an order of magnitude more
+  often than independence predicts, so the blend landed between its parents, not above
+  them. Check co-error against `p_a · p_b` before buying models.
+- The tie-break is part of the selection rule, written before looking: within one
+  resolution of the top, take the fewest moving parts. Twelve experiments ended at
+  *baseline + one parameter* — and only the ladder makes that sentence a measurement
+  instead of a guess.

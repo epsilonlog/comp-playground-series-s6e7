@@ -48,8 +48,19 @@ Facts a fresh session needs; do not re-derive or reopen without new evidence.
   exp_0001 landed public 0.87210 (CV − 0.0008) and private 0.87171 (CV − 0.0012).
   CV↔LB correlation is trusted; select by CV. (Private scores are visible because the
   competition has ended — this is a late-submission practice run; LB rank is moot.)
-- **Decision rule:** argmax is not settled — a per-class multiplier search on OOF is the
-  planned free-score step after the baseline (2 free parameters at K=3).
+- **Ladder complete (exp_0002–exp_0012, 2026-08-31):** encoding +0.0009 (paired t=4.8),
+  capacity +0.0039, features ±0.0000 (two honest negatives), **prior correction +0.077**
+  (dominates everything), routes converge (weights 0.94945 / searched rule 0.94931),
+  XGBoost 0.88042 at argmax, blend dead (co-errors ~10× the independence line).
+  Post-correction: four-way tie 0.94931–0.94956 inside one resolution.
+- **Selection rule (declared before further LB looks):** highest `cv_mean`; ties within
+  0.001 break toward fewer moving parts. **Final = exp_0004** (LGBM defaults +
+  `class_weight=balanced`); second pick = exp_0012 (blend + rule).
+- **Stopped, deliberately:** remaining ideas (rule-on-xgb, CatBoost, Optuna, stacking)
+  have best cases inside the tie band — unreadable even if they win. Do not resume the
+  ladder without a new information source (new data, new feature domain, new metric).
+- **Carry to the next competition:** fix the metric-correct decision rule *before*
+  laddering — argmax gains here largely vanished once the prior was corrected.
 
 ---
 
