@@ -12,6 +12,9 @@ result:
   cv_std: 0.00138
   runtime_s: 712
   multipliers: [1.0, 17.78, 12.92]
+  lb_public: 0.94948   # CV - 0.0001
+  lb_private: 0.94978  # CV + 0.0002
+  final: "second pick: the most different pipeline inside the tie"
   notes: >
     Final-candidate cluster: 0.94931 / 0.94945 / 0.94955 / 0.94956 (exps 0009, 0008,
     0012, 0004) - a four-way tie inside one resolution. The selection rule (notebook 07,

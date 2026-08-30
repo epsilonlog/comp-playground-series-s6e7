@@ -2,7 +2,7 @@ exp_id,date,config,model,folds,cv_mean,cv_std,lb_public,oof_path,runtime_s,paren
 exp_0001,2026-08-30,configs/exp_0001.yaml,lgbm,stratified5_seed42,0.87291,0.00205,0.87210,oof/exp_0001.npy,58,,"first baseline: LGBM defaults, raw features, argmax"
 exp_0002,2026-08-30,configs/exp_0002.yaml,lgbm,stratified5_seed42,0.87378,0.00223,,oof/exp_0002.npy,116,exp_0001,native categorical handling (LGBM categorical splits)
 exp_0003,2026-08-30,configs/exp_0003.yaml,lgbm,stratified5_seed42,0.87682,0.00217,,oof/exp_0003.npy,627,exp_0001,capacity: 500 trees at lr 0.05
-exp_0004,2026-08-30,configs/exp_0004.yaml,lgbm,stratified5_seed42,0.94956,0.00138,,oof/exp_0004.npy,232,exp_0001,class_weight=balanced (training-route prior correction)
+exp_0004,2026-08-30,configs/exp_0004.yaml,lgbm,stratified5_seed42,0.94956,0.00138,0.95032,oof/exp_0004.npy,232,exp_0001,class_weight=balanced (training-route prior correction)
 exp_0005,2026-08-30,configs/exp_0005.yaml,lgbm,stratified5_seed42,0.87291,0.00205,,oof/exp_0005.npy,206,exp_0001,add 13 missingness indicator columns
 exp_0006,2026-08-30,configs/exp_0006.yaml,lgbm,stratified5_seed42,0.87285,0.00200,,oof/exp_0006.npy,197,exp_0001,add 3 activity-intensity ratios (from exp_0001 error profile)
 exp_0007,2026-08-30,configs/exp_0007.yaml,lgbm,stratified5_seed42,0.87742,0.00186,,oof/exp_0007.npy,433,exp_0003,compose winners: capacity (exp_0003) + native cats (exp_0002)
@@ -10,4 +10,4 @@ exp_0008,2026-08-30,configs/exp_0008.yaml,lgbm,stratified5_seed42,0.94945,0.0010
 exp_0009,2026-08-31,configs/exp_0009.yaml,rule(exp_0007),stratified5_seed42,0.94931,0.00115,,oof/exp_0007.npy,631,exp_0007,"decision rule: per-class multipliers, cross-fitted on OOF"
 exp_0010,2026-08-31,configs/exp_0010.yaml,xgb,stratified5_seed42,0.88042,0.00194,,oof/exp_0010.npy,123,exp_0001,"new family: XGBoost defaults, baseline features (diversity for the blend)"
 exp_0011,2026-08-31,configs/exp_0011.yaml,blend(exp_0007+exp_0010),stratified5_seed42,0.87849,0.00174,,oof/exp_0011.npy,0,exp_0007,blend of exp_0007+exp_0010
-exp_0012,2026-08-31,configs/exp_0012.yaml,rule(exp_0011),stratified5_seed42,0.94955,0.00138,,oof/exp_0011.npy,712,exp_0011,"decision rule: per-class multipliers, cross-fitted on OOF"
+exp_0012,2026-08-31,configs/exp_0012.yaml,rule(exp_0011),stratified5_seed42,0.94955,0.00138,0.94948,oof/exp_0011.npy,712,exp_0011,"decision rule: per-class multipliers, cross-fitted on OOF"

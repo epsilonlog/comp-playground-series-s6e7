@@ -13,6 +13,9 @@ result:
   fit_mean: 0.95110
   runtime_s: 232
   paired_vs_parent: {diff: +0.07665, fold_sd: 0.00213, t: 80.4}
+  lb_public: 0.95032   # CV + 0.0008 (public wobble ~0.003 at 59k rows)
+  lb_private: 0.94979  # CV + 0.0002 - the harness measured reality
+  final: "FINAL PICK (selection rule, notebook 07): simplest member of the 4-way tie"
   notes: >
     The single largest effect in the ladder (+0.077): under balanced weights the argmax
     IS the right decision rule for balanced accuracy, so this is prior correction done
