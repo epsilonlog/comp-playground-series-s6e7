@@ -1,0 +1,17 @@
+# exp_0013 — immutable once run (2026-08-31)
+exp_id: exp_0013
+model: ftt
+params: {}          # builder defaults ARE the reproduction recipe — see src/s6e7/models/ftt.py
+features: baseline
+folds: data/processed/folds.parquet
+decision_rule: argmax   # prior-corrected rule measured separately (run_rule), as exp_0015
+parent: exp_0001
+changed: "new family: FT-Transformer (masamlp, Kawamata recipe), raw features"
+provenance: >
+  Step-8 reproduction of "S6E7 | FT-Transformer-v2 [CV: 0.95063]" (masayakawamata),
+  private LB 0.95084 — the base model of the 2nd- and 4th-place solutions. Libraries
+  pinned to the notebook's own versions: masamlp==0.3.0, catstat==0.4.0. Config verbatim
+  from the notebook except: our frozen 5 folds instead of its 7 (rule 6 — comparability
+  with exp_0001..0012 beats matching its absolute number), and n_ens=1 instead of 4
+  (its own paired measurement: +0.00017 BA, inside metric discreteness, at 4x wall
+  clock). Trained on Kaggle GPU via notebooks/kaggle_ftt/ — local box is CPU-only torch.

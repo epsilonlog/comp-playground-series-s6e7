@@ -84,7 +84,9 @@ pretty = true
 [[tool.mypy.overrides]]
 module = [
     "catboost.*",
+    "catstat.*",
     "lightgbm.*",
+    "masamlp.*",
     "optuna.*",
     "pandas.*",
     "sklearn.*",
