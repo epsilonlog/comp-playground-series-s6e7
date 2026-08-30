@@ -62,6 +62,18 @@ ORDINAL_LEVELS: Final[dict[str, tuple[str, ...]]] = {
 ORDINAL_COLS: Final[tuple[str, ...]] = tuple(ORDINAL_LEVELS)
 NOMINAL_COLS: Final[tuple[str, ...]] = ("diet_type", "gender")
 
+# Declared vocabulary for the nominal columns — verified identical in train and test
+# (2026-08-30). A fixed vocabulary makes integer coding a schema fact rather than a
+# learned transform, so it cannot leak across folds.
+NOMINAL_LEVELS: Final[dict[str, tuple[str, ...]]] = {
+    "diet_type": ("balanced", "non-veg", "veg"),
+    "gender": ("female", "male", "other"),
+}
+
+#: Target classes in sorted order. Every OOF matrix and `predict_proba` output orders
+#: its columns this way; class index i everywhere means CLASSES[i].
+CLASSES: Final[tuple[str, ...]] = ("at-risk", "fit", "unhealthy")
+
 SCHEMA: Final[dict[str, pl.DataType]] = {
     ID: pl.UInt32(),
     TARGET: pl.String(),

@@ -1,1 +1,2 @@
 exp_id,date,config,model,folds,cv_mean,cv_std,lb_public,oof_path,runtime_s,parent,changed
+exp_0001,2026-08-30,configs/exp_0001.yaml,lgbm,stratified5_seed42,0.87291,0.00205,,oof/exp_0001.npy,58,,"first baseline: LGBM defaults, raw features, argmax"
