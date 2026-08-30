@@ -1,0 +1,19 @@
+# exp_0008 — immutable once run (2026-08-30)
+exp_id: exp_0008
+model: lgbm
+params: {categorical_feature: [7, 8, 9, 10, 11, 12], n_estimators: 500, learning_rate: 0.05, class_weight: balanced}
+features: native_cats
+folds: data/processed/folds.parquet
+decision_rule: argmax (correct under balanced weights)
+parent: exp_0007
+changed: "route A: class_weight=balanced on the combo (training-route prior correction)"
+result:
+  cv_mean: 0.94945
+  cv_std: 0.00108
+  fit_mean: 0.95489
+  runtime_s: 427
+  notes: >
+    Lands within 0.0001 of exp_0004 (weights on the *defaults* baseline, 0.94956):
+    once the prior is corrected, the combo's argmax gains vanish. The pre-correction
+    ladder was largely improving the same decision-boundary region that prior
+    correction fixes wholesale - remaining errors are irreducible class overlap.

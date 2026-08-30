@@ -1,0 +1,18 @@
+# exp_0012 — immutable once run (2026-08-30)
+exp_id: exp_0012
+model: rule(exp_0011)
+params: {}
+features: n/a (post-hoc on exp_0011 blended probabilities)
+folds: data/processed/folds.parquet
+decision_rule: per-class multipliers, cross-fitted
+parent: exp_0011
+changed: "decision rule: per-class multipliers, cross-fitted on OOF"
+result:
+  cv_mean: 0.94955
+  cv_std: 0.00138
+  runtime_s: 712
+  multipliers: [1.0, 17.78, 12.92]
+  notes: >
+    Final-candidate cluster: 0.94931 / 0.94945 / 0.94955 / 0.94956 (exps 0009, 0008,
+    0012, 0004) - a four-way tie inside one resolution. The selection rule (notebook 07,
+    written before any further LB look) breaks ties toward fewer moving parts.

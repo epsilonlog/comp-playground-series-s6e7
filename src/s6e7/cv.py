@@ -20,6 +20,7 @@ execution trains, every later execution reloads the logged result.
 from __future__ import annotations
 
 import csv
+import json
 import time
 from dataclasses import dataclass, field
 from datetime import date
@@ -242,13 +243,29 @@ def run_rule(
         changed="decision rule: per-class multipliers, cross-fitted on OOF",
     )
     already_logged = _assert_no_conflicting_row(ledger, config) if log else False
+    cache = oof_dir / f"{exp_id}_rule.json"
+    test_pred = oof_dir / f"{parent}_test.npy"
+
+    if already_logged and cache.exists():
+        payload = json.loads(cache.read_text(encoding="utf-8"))
+        result = CVResult(
+            exp_id=exp_id,
+            fold_scores=tuple(payload["fold_scores"]),
+            cv_mean=float(np.mean(payload["fold_scores"])),
+            cv_std=float(np.std(payload["fold_scores"], ddof=1)),
+            oof_path=oof_dir / f"{parent}.npy",
+            test_pred_path=test_pred if test_pred.exists() else None,
+            runtime_s=float(_ledger_row(ledger, exp_id)["runtime_s"]),
+        )
+        return result, np.array(payload["final_multipliers"], dtype=np.float64)
+
     started = time.perf_counter()
     proba = np.load(oof_dir / f"{parent}.npy")
     y = features.encode_target(train[io.TARGET])
     fold = folds.fold_vector(train, path=folds_path)
 
     fitted = decision.cross_fit(proba, y, fold)
-    final_multipliers, _ = decision.search(proba, y)
+    final_multipliers, in_sample = decision.search(proba, y)
 
     result = CVResult(
         exp_id=exp_id,
@@ -256,8 +273,21 @@ def run_rule(
         cv_mean=float(np.mean(fitted.fold_scores)),
         cv_std=float(np.std(fitted.fold_scores, ddof=1)),
         oof_path=oof_dir / f"{parent}.npy",
-        test_pred_path=(path if (path := oof_dir / f"{parent}_test.npy").exists() else None),
+        test_pred_path=test_pred if test_pred.exists() else None,
         runtime_s=time.perf_counter() - started,
+    )
+    cache.write_text(
+        json.dumps(
+            {
+                "fold_scores": list(fitted.fold_scores),
+                "fold_multipliers": [list(m) for m in fitted.fold_multipliers],
+                "final_multipliers": [float(v) for v in final_multipliers],
+                # in-sample minus cross-fitted mean = how much the rule overfits (~0)
+                "in_sample_score": in_sample,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
     )
     if log and not already_logged:
         _append_row(ledger, config, result)

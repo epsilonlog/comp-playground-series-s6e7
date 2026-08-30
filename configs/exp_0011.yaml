@@ -1,0 +1,18 @@
+# exp_0011 — immutable once run (2026-08-30)
+exp_id: exp_0011
+model: blend(exp_0007+exp_0010)
+params: {weights: [0.5, 0.5]}
+features: n/a (arithmetic over saved OOF probabilities)
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0007
+changed: "blend of exp_0007+exp_0010"
+result:
+  cv_mean: 0.87849
+  cv_std: 0.00174
+  runtime_s: 0
+  notes: >
+    At argmax the equal blend lands between its parents (0.87742 / 0.88042) rather than
+    above both - the two GBDTs' errors are too correlated for an equal average to win
+    at this stage. After the rule (exp_0012) the blend does edge both parents' ruled
+    versions, by an amount inside the resolution.

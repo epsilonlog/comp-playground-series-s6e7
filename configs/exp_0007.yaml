@@ -1,0 +1,19 @@
+# exp_0007 — immutable once run (2026-08-30)
+exp_id: exp_0007
+model: lgbm
+params: {categorical_feature: [7, 8, 9, 10, 11, 12], n_estimators: 500, learning_rate: 0.05}
+features: native_cats
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0003
+changed: "compose winners: capacity (exp_0003) + native cats (exp_0002)"
+result:
+  cv_mean: 0.87742
+  cv_std: 0.00186
+  fit_mean: 0.89312
+  runtime_s: 433
+  notes: >
+    The deliberate integration step. Predicted from the two isolated gains:
+    +0.00087 + 0.00391 = +0.0048 over baseline; delivered +0.0045 - the gains composed
+    almost exactly additively, which is the checked version of the assumption most
+    ladders silently make.

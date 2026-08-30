@@ -1,0 +1,18 @@
+# exp_0009 — immutable once run (2026-08-30)
+exp_id: exp_0009
+model: rule(exp_0007)
+params: {}                # 2 free multipliers, searched on OOF; class 0 fixed at 1
+features: n/a (post-hoc on exp_0007 probabilities)
+folds: data/processed/folds.parquet
+decision_rule: per-class multipliers, cross-fitted
+parent: exp_0007
+changed: "route B: decision rule searched on OOF (post-hoc prior correction)"
+result:
+  cv_mean: 0.94931
+  cv_std: 0.00115
+  runtime_s: 631
+  multipliers: [1.0, 17.22, 10.16]   # divide-by-prior predicts (1, 14.8, 11.9)
+  notes: >
+    Route B lands within 0.00014 of route A (exp_0008) - the two implementations of the
+    same correction converge, as the theory said they should. The searched multipliers
+    sit near 1/prior because exp_0007's probabilities are well calibrated.
