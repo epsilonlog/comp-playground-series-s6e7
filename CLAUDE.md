@@ -10,17 +10,44 @@ Instructions for Claude Code / Codex in this repository. Read fully before any t
 
 | Operator writes | Claude writes | Claude never writes |
 |---|---|---|
-| `plots.py` (all EDA plotting) | Boilerplate: `pyproject.toml`, `.gitignore`, CI | Anything in `plots.py` |
-| Feature ideas in `features.py` | `io.py`, dtype schemas | Whole solutions unprompted |
+| Feature ideas in `features.py` | `plots.py` and all plotting (transferred from operator, 2026-08-30) | Whole solutions unprompted |
 | The CV design decision | The harness once the design is chosen | Model code before the harness exists |
-| Model/hyperparameter choices | Registry plumbing, type stubs | New experiments without being asked |
-| `SOLUTION.md` | Git commits, branch hygiene | Config values |
+| Model/hyperparameter choices | Boilerplate: `pyproject.toml`, `.gitignore`, CI; `io.py`, dtype schemas | New experiments without being asked |
+| `SOLUTION.md` | Registry plumbing, type stubs; git commits, branch hygiene | Config values |
 
 When the operator asks "how do I X", **explain first, then offer code**. Do not
 answer a conceptual question with a patch.
 
 When asked to implement something whose design is undetermined, ask one
 question rather than assume.
+
+**Keep explanations short** (operator feedback, 2026-08-30): one worked number per
+idea, no parallel derivations, no exhaustive option surveys. If it takes three
+screens, it's too long.
+
+---
+
+## Project state — settled decisions (updated 2026-08-30)
+
+Facts a fresh session needs; do not re-derive or reopen without new evidence.
+
+- **Task:** 3-class classification of `health_condition` (`at-risk` 85.9% / `unhealthy`
+  8.4% / `fit` 5.8%). 690,088 train / 295,753 test rows, 13 features (7 numeric,
+  6 categorical). Metric: balanced accuracy, reimplemented + tested in `metric.py`.
+- **Resolution:** SE(`cv_mean`) ≈ 0.001, expected `cv_std` ≈ 0.002. Effects below
+  ~0.001 are unmeasurable — don't chase them.
+- **Folds frozen:** `StratifiedKFold(5)` on target alone, seed 42 →
+  `data/processed/folds.parquet`, with `null_bucket` as a diagnostic slice key (not a
+  stratification key). Run `folds.verify()` when in doubt; never rebuild.
+- **Shift (closed):** adversarial AUC 0.6518 all rows / 0.5304 complete cases. The shift
+  is null co-occurrence (test clumps nulls; k≥3 rows: 4.55% test vs 2.17% train) and is
+  target-orthogonal. `bmi_is_null` carries the only missingness signal (unhealthy 2.79%
+  when null vs 8.47% present) and its rate is identical in both files. Decision: no fold
+  change; watch per-`null_bucket` recall on missing-data-handling experiments.
+- **Standing prediction:** public LB lands ~0.001–0.002 *below* CV. A ~0.02 gap means
+  something this analysis doesn't explain.
+- **Decision rule:** argmax is not settled — a per-class multiplier search on OOF is the
+  planned free-score step after the baseline (2 free parameters at K=3).
 
 ---
 
@@ -99,7 +126,7 @@ comp-<slug>/
 │  ├─ folds.py
 │  ├─ metric.py
 │  ├─ cv.py
-│  ├─ plots.py               # OPERATOR OWNS THIS FILE
+│  ├─ plots.py
 │  └─ models/
 ├─ tests/
 ├─ notebooks/
@@ -189,9 +216,10 @@ Parquet for all intermediates, never CSV.
 
 ---
 
-## plots.py — operator-owned interface
+## plots.py — the plotting interface
 
-Claude may review and suggest, **never implement**.
+Claude-owned since 2026-08-30 (previously operator-owned). Every notebook shows its
+figures — an analysis without the plot is half-delivered.
 
 Contract: every function takes a Polars frame, returns a `matplotlib.figure.Figure`,
 never calls `plt.show()`, never saves. The caller decides.
@@ -332,7 +360,7 @@ Step 8 is where most of the learning is. Do not skip it.
 | Regenerating folds mid-competition | Frozen at step 3 |
 | Logic in notebooks | `src/` only |
 | Multiple simultaneous changes | One variable per `exp_id` |
-| Claude writing `plots.py` | Operator owns it |
+| Notebooks without figures | `plots.py` exists to be used |
 | Claude writing unrequested code | Explain first |
 | Installing CUDA locally | Settled. Don't revisit |
 | Two competitions at once | One, through step 8 |
