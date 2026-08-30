@@ -620,6 +620,73 @@ def null_count_vs_target(
     return pl.DataFrame(rows)
 
 
+def recall_by_bin(
+    df: pl.DataFrame,
+    proba: np.ndarray,
+    col: str,
+    target: str,
+    *,
+    n_bins: int = 10,
+    min_rows: int = 500,
+) -> pl.DataFrame:
+    """Per-class recall inside bins of one feature, computed from OOF probabilities.
+
+    Decision: **where** does the model fail — the first question of the feature-discovery
+    loop. A bin where a class's recall sits far below its global value marks a segment
+    the current features cannot express; that segment is the feature hypothesis. A flat
+    table is a negative result that crosses the axis off the list — read deviations
+    against the binomial SE of each cell, not against zero.
+
+    Numeric columns are cut into `n_bins` quantile bins; categoricals use their levels;
+    nulls always form their own bin. The first row is the global reference.
+    """
+    classes = _classes(df, target)
+    mapping = {cls: i for i, cls in enumerate(classes)}
+    y = df[target].replace_strict(mapping, return_dtype=pl.Int32).to_numpy()
+    pred = proba.argmax(axis=1)
+    correct = pred == y
+
+    groups: list[tuple[str, np.ndarray]] = [("all", np.ones(df.height, dtype=bool))]
+    if df[col].dtype.is_numeric():
+        values = df[col].to_numpy().astype(np.float64)
+        finite = np.isfinite(values)
+        edges = np.unique(np.quantile(values[finite], np.linspace(0.0, 1.0, n_bins + 1)))
+        idx = np.clip(np.searchsorted(edges, values, side="right") - 1, 0, len(edges) - 2)
+        for b in range(len(edges) - 1):
+            groups.append((f"{edges[b]:.4g} - {edges[b + 1]:.4g}", finite & (idx == b)))
+        if (~finite).any():
+            groups.append((NULL_LABEL, ~finite))
+    else:
+        for level in df[col].unique().sort().to_list():
+            if level is None:
+                groups.append((NULL_LABEL, df[col].is_null().to_numpy()))
+            else:
+                groups.append((str(level), (df[col] == level).fill_null(False).to_numpy()))
+
+    rows: list[dict[str, Any]] = []
+    for label, mask in groups:
+        n = int(mask.sum())
+        if n < min_rows:
+            continue
+        row: dict[str, Any] = {
+            "bin": label,
+            "n_rows": n,
+            "share_pct": round(100.0 * n / df.height, 2),
+        }
+        recalls = []
+        for i, cls in enumerate(classes):
+            in_class = mask & (y == i)
+            if in_class.sum() >= 30:
+                recall = float(correct[in_class].mean())
+                recalls.append(recall)
+                row[f"recall_{cls}"] = round(recall, 4)
+            else:
+                row[f"recall_{cls}"] = None
+        row["balanced_acc"] = round(float(np.mean(recalls)), 4) if recalls else None
+        rows.append(row)
+    return pl.DataFrame(rows)
+
+
 def shift_power(
     n_rows: int,
     *,

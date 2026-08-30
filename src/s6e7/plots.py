@@ -453,6 +453,47 @@ def oof_diagnostics(
     return fig
 
 
+def experiment_compare(
+    experiments: pl.DataFrame, *, n_folds: int = 5, resolution: float = 0.001
+) -> Figure:
+    """Decision: which experiments moved the needle, and whether the trajectory has
+    flattened — the when-to-stop dial.
+
+    Points are cv_mean with ±2·cv_std/√n_folds error bars; the grey band is the best
+    score ± the harness resolution, so any point inside it is statistically the same
+    experiment as the best. Black diamonds are public LB where recorded — they should
+    ride ~0.001-0.002 below CV (the standing prediction); a point breaking that pattern
+    is the alarm, not the gap itself.
+    """
+    mean = experiments["cv_mean"].to_numpy().astype(np.float64)
+    err = 2.0 * experiments["cv_std"].to_numpy().astype(np.float64) / math.sqrt(n_folds)
+    labels = experiments["exp_id"].to_list()
+    x = np.arange(len(labels))
+    best = float(mean.max())
+
+    fig, (ax,) = _grid(1, panel=(max(6.5, 0.9 * len(labels) + 2.5), 4.0))
+    ax.axhspan(
+        best - resolution,
+        best + resolution,
+        color="#EEEEEE",
+        zorder=0,
+        label=f"best ± {resolution} (resolution)",
+    )
+    ax.errorbar(
+        x, mean, yerr=err, fmt="o", color=TRAIN_COLOR, capsize=3, zorder=2, label="cv_mean ± 2 SE"
+    )
+    if "lb_public" in experiments.columns:
+        lb = experiments["lb_public"].cast(pl.Float64, strict=False).to_numpy()
+        has_lb = np.isfinite(lb.astype(np.float64))
+        if has_lb.any():
+            ax.plot(x[has_lb], lb[has_lb], "D", color="black", ms=5, zorder=3, label="public LB")
+    ax.set_xticks(x, labels, rotation=30, ha="right", fontsize=8)
+    ax.set_ylabel("balanced accuracy")
+    ax.set_title("experiment trajectory — flat inside the band means the axis is mined out")
+    ax.legend(fontsize=8, loc="lower right")
+    return fig
+
+
 def resolution_demo(
     se: float = 0.00103, *, effects: Sequence[float] = (0.0005, 0.002, 0.005)
 ) -> Figure:

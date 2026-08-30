@@ -89,6 +89,52 @@ def test_test_predictions_average_the_folds(harness: dict[str, object]) -> None:
     assert set(sub[io.TARGET].unique().to_list()) <= set(io.CLASSES)
 
 
+def test_if_logged_skip_reloads_instead_of_raising(harness: dict[str, object]) -> None:
+    first = _run(harness)
+    again = _run(harness, if_logged="skip")
+    assert again.fold_scores == pytest.approx(first.fold_scores)
+    assert again.fit_scores == ()  # reconstructed results carry no fit scores
+    assert len(first.fit_scores) == 5
+    assert all(0.0 <= s <= 1.0 for s in first.fit_scores)
+
+
+def test_blend_of_identical_parents_scores_like_the_parent(harness: dict[str, object]) -> None:
+    from s6e7.cv import run_blend
+
+    parent = _run(harness)
+    blend = run_blend(
+        "exp_9010",
+        ["exp_9001", "exp_9001"],
+        train=harness["train"],  # type: ignore[arg-type]
+        folds_path=harness["folds_path"],  # type: ignore[arg-type]
+        oof_dir=harness["oof_dir"],  # type: ignore[arg-type]
+        ledger=harness["ledger"],  # type: ignore[arg-type]
+    )
+    assert blend.cv_mean == pytest.approx(parent.cv_mean)
+    ledger: Path = harness["ledger"]  # type: ignore[assignment]
+    assert "blend(exp_9001+exp_9001)" in ledger.read_text(encoding="utf-8")
+
+
+def test_run_rule_cross_fits_and_is_idempotent(harness: dict[str, object]) -> None:
+    from s6e7.cv import run_rule
+
+    _run(harness)
+    kwargs = {
+        "train": harness["train"],
+        "folds_path": harness["folds_path"],
+        "oof_dir": harness["oof_dir"],
+        "ledger": harness["ledger"],
+    }
+    result, multipliers = run_rule("exp_9020", "exp_9001", **kwargs)  # type: ignore[arg-type]
+    assert len(result.fold_scores) == 5
+    assert multipliers.shape == (3,) and multipliers[0] == 1.0
+
+    ledger: Path = harness["ledger"]  # type: ignore[assignment]
+    n_rows = len(ledger.read_text(encoding="utf-8").strip().splitlines())
+    run_rule("exp_9020", "exp_9001", **kwargs)  # type: ignore[arg-type]
+    assert len(ledger.read_text(encoding="utf-8").strip().splitlines()) == n_rows
+
+
 def test_slice_report_covers_all_rows_once(harness: dict[str, object]) -> None:
     from s6e7.cv import slice_report
 

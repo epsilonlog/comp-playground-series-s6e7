@@ -5,7 +5,13 @@ import polars as pl
 import pytest
 
 from s6e7 import io
-from s6e7.features import baseline_matrix, decode_target, encode_target
+from s6e7.features import (
+    CATEGORICAL_IDX,
+    baseline_matrix,
+    build_matrix,
+    decode_target,
+    encode_target,
+)
 
 
 def frame(**overrides: list[object]) -> pl.DataFrame:
@@ -47,6 +53,40 @@ def test_unknown_level_raises_rather_than_silently_coding() -> None:
     bad = frame(diet_type=["balanced", "KETO", "veg"])
     with pytest.raises(pl.exceptions.InvalidOperationError):
         baseline_matrix(bad)
+
+
+def test_native_cats_codes_null_as_negative() -> None:
+    matrix, names = build_matrix("native_cats", frame())
+    assert matrix[2, names.index("gender")] == -1.0
+    assert np.isnan(matrix[1, names.index("bmi")])  # numerics keep NaN
+    assert [names[i] for i in CATEGORICAL_IDX] == list(io.ORDINAL_COLS + io.NOMINAL_COLS)
+
+
+def test_indicators_append_null_flags() -> None:
+    matrix, names = build_matrix("indicators", frame())
+    assert matrix.shape == (3, 13 + 13)
+    assert matrix[1, names.index("bmi_isnull")] == 1.0
+    assert matrix[0, names.index("bmi_isnull")] == 0.0
+    assert matrix[2, names.index("gender_isnull")] == 1.0
+
+
+def test_ratios_guard_zero_denominators() -> None:
+    base = frame(
+        calorie_expenditure=[2000.0, 1500.0, 1000.0],
+        step_count=[8000.0, 0.0, 4000.0],
+        exercise_duration=[40.0, 20.0, 0.0],
+    )
+    matrix, names = build_matrix("ratios", base)
+    assert matrix.shape == (3, 16)
+    assert matrix[0, names.index("cal_per_step")] == pytest.approx(0.25)
+    assert np.isnan(matrix[1, names.index("cal_per_step")])  # 0 steps -> NaN, not inf
+    assert np.isnan(matrix[2, names.index("steps_per_exmin")])
+    assert not np.isinf(matrix).any()
+
+
+def test_unknown_feature_set_raises() -> None:
+    with pytest.raises(KeyError, match="unknown feature set"):
+        build_matrix("kitchen_sink_9000", frame())
 
 
 def test_target_roundtrip_and_unknown_label() -> None:

@@ -27,6 +27,35 @@ def test_every_plot_returns_a_figure() -> None:
     assert all(isinstance(f, Figure) for f in figs)
 
 
+def test_experiment_compare_reads_a_ledger_frame() -> None:
+    import polars as pl
+
+    ledger = pl.DataFrame(
+        {
+            "exp_id": ["exp_0001", "exp_0002", "exp_0003"],
+            "cv_mean": [0.8729, 0.8741, 0.8738],
+            "cv_std": [0.0021, 0.0019, 0.0022],
+            "lb_public": [0.8721, None, None],
+        }
+    )
+    assert isinstance(plots.experiment_compare(ledger), Figure)
+
+
+def test_recall_by_bin_first_row_is_global() -> None:
+    from s6e7 import eda
+
+    train = make_train(n=600)
+    rng = np.random.default_rng(1)
+    proba = rng.dirichlet(np.ones(3), size=600)
+    table = eda.recall_by_bin(train, proba, "bmi", io.TARGET, n_bins=4, min_rows=10)
+    assert table["bin"][0] == "all"
+    assert table["n_rows"][0] == 600
+    assert table["n_rows"].to_list()[1:] and sum(table["n_rows"].to_list()[1:]) == 600
+
+    cats = eda.recall_by_bin(train, proba, "gender", io.TARGET, min_rows=10)
+    assert set(cats["bin"].to_list()) <= {"all", *io.NOMINAL_LEVELS["gender"]}
+
+
 def test_resolution_demo_is_data_free() -> None:
     assert isinstance(plots.resolution_demo(), Figure)
     assert isinstance(plots.resolution_demo(0.002, effects=(0.001, 0.01)), Figure)
