@@ -8,6 +8,8 @@
   "enable_gpu": true,
   "enable_tpu": false,
   "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "docker_image_pinning_type": "latest",
   "dataset_sources": ["aligh474/s6e7-frozen-folds"],
   "competition_sources": ["playground-series-s6e7"],
   "kernel_sources": [],
