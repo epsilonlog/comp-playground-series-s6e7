@@ -31,7 +31,7 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
-from s6e7 import decision, features, folds, io, metric, registry
+from s6e7 import decision, encoders, features, folds, io, metric, registry
 
 OOF_DIR: Final[Path] = io.ROOT / "oof"
 LEDGER: Final[Path] = io.ROOT / "experiments.csv"
@@ -52,6 +52,9 @@ class ExperimentConfig:
     model: str
     params: dict[str, Any] = field(default_factory=dict)
     features: str = "baseline"
+    #: Name of a *fitted* transform from `encoders.BUILDERS`, appended to the declared
+    #: feature matrix inside the fold. Empty = declared features only.
+    encoder: str = ""
     parent: str = ""
     changed: str = ""
 
@@ -118,16 +121,29 @@ def run(
     scores: list[float] = []
     fit_scores: list[float] = []
     for fit_idx, val_idx in folds.iter_folds(fold):
+        fit_X, val_X, test_X = matrix[fit_idx], matrix[val_idx], test_matrix
+        if config.encoder:
+            # Fitted transform: this fold's training rows only, inner-cross-fitted for
+            # the training matrix so no row is encoded by a statistic it helped compute.
+            encoder = encoders.build(config.encoder)
+            fit_rows, val_rows = _rows(train, fit_idx), _rows(train, val_idx)
+            fit_extra, _ = encoder.fit_transform_inner(fit_rows, y[fit_idx])
+            val_extra, _ = encoder.transform(val_rows)
+            fit_X = np.hstack([fit_X, fit_extra])
+            val_X = np.hstack([val_X, val_extra])
+            if test is not None and test_matrix is not None:
+                test_X = np.hstack([test_matrix, encoder.transform(test)[0]])
+
         model = registry.build(config.model, config.params)
-        model.fit(matrix[fit_idx], y[fit_idx])
+        model.fit(fit_X, y[fit_idx])
         _assert_class_order(model, n_classes)
-        proba = np.asarray(model.predict_proba(matrix[val_idx]))
+        proba = np.asarray(model.predict_proba(val_X))
         oof[val_idx] = proba
         scores.append(metric.balanced_accuracy(y[val_idx], proba.argmax(axis=1)))
-        fit_proba = np.asarray(model.predict_proba(matrix[fit_idx]))
+        fit_proba = np.asarray(model.predict_proba(fit_X))
         fit_scores.append(metric.balanced_accuracy(y[fit_idx], fit_proba.argmax(axis=1)))
-        if test_matrix is not None and test_sum is not None:
-            test_sum += np.asarray(model.predict_proba(test_matrix))
+        if test_X is not None and test_sum is not None:
+            test_sum += np.asarray(model.predict_proba(test_X))
 
     if np.isnan(oof).any():
         msg = "OOF has unpredicted rows — the fold vector does not cover the frame"
@@ -444,6 +460,18 @@ def _blend_config(exp_id: str, parents: list[str], w: NDArray[np.float64]) -> Ex
         parent=parents[0],
         changed=f"blend of {label}{weight_note}",
     )
+
+
+def _rows(df: pl.DataFrame, index: NDArray[np.integer]) -> pl.DataFrame:
+    """Rows at `index`, in the same order the feature matrix was sliced.
+
+    `folds.iter_folds` yields ascending indices, and a boolean mask keeps ascending
+    order, so `_rows(train, idx)` lines up positionally with `matrix[idx]`. Anything
+    that reordered here would pair a row's features with another row's encoding.
+    """
+    mask = np.zeros(df.height, dtype=bool)
+    mask[index] = True
+    return df.filter(mask)
 
 
 def _assert_canonical_order(train: pl.DataFrame) -> None:

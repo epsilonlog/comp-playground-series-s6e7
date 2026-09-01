@@ -1,0 +1,29 @@
+# exp_0017 — immutable once run (2026-09-01)
+exp_id: exp_0017
+model: lgbm
+params: {class_weight: balanced}
+features: baseline   # the 9 TE columns are a FITTED transform (rule 3): built inside the
+                     # fold by encoders.exact_value_te, never a features.py entry
+encoder: exact_value_te
+folds: data/processed/folds.parquet
+decision_rule: argmax   # already prior-corrected during training, as in exp_0004
+parent: exp_0004
+changed: "add 9 fold-fitted exact-value TE columns (3 columns x 3 classes)"
+result:
+  cv_mean: 0.95014
+  cv_std: 0.00144
+  fit_mean: 0.95191
+  runtime_s: 75
+  paired_vs_parent: {diff: +0.00059, t: 7.2, folds_positive: 5/5}
+  notes: >
+    First score above the four-way tie band (0.94931-0.94956) and the largest readable
+    gain since the prior correction. Motivated by measurement, not imitation: notebook 06
+    section 4's split-half replication test found per-value target signal in exactly these
+    three columns (sleep_duration r=0.94 with a replicating residual sd of 0.094 against a
+    0.084 base rate; water_intake 0.0435; heart_rate 0.0232), structure a 255-bin
+    histogram destroys before the first split. Independently consistent with the
+    11th-place writeup's +0.0007 from the same mechanism on XGBoost.
+    Leak discipline: encoder fitted on each fold's training rows only, and the training
+    matrix built from an inner 5-fold so no row is encoded by a statistic it helped
+    compute. The fit-val gap is +0.00177 against exp_0004's +0.00154 — unchanged, which
+    is what a non-leaking encoder looks like.

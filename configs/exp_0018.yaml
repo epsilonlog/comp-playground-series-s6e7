@@ -1,0 +1,24 @@
+# exp_0018 — immutable once run (2026-09-01)
+exp_id: exp_0018
+model: lgbm
+params: {class_weight: balanced}
+features: baseline
+encoder: exact_value_te_all   # all 7 numeric columns = 21 TE columns
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0017
+changed: "encode all 7 numeric columns instead of the 3 the replication test kept"
+result:
+  cv_mean: 0.95017
+  cv_std: 0.00144
+  fit_mean: 0.95205
+  runtime_s: 128
+  paired_vs_parent: {diff: +0.00003, t: 0.4, folds_positive: 4/5}
+  notes: >
+    Not a tuning run — this experiment tests the *screen*. eda.exact_value_signal called
+    step_count, bmi, exercise_duration and calorie_expenditure noise (replication r ~ 0);
+    encoding them anyway adds twelve columns and buys +0.00003 at t=0.4, i.e. nothing.
+    So the split-half replication test is a working pre-filter: it picked 3 of 7 columns
+    before any model ran and lost no score by discarding the other 4, at 75s instead of
+    128s. Keep exp_0017 as the cheaper equal. The transferable claim is about the screen,
+    not about these four columns.

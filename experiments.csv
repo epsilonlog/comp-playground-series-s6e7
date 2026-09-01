@@ -11,3 +11,5 @@ exp_0009,2026-08-31,configs/exp_0009.yaml,rule(exp_0007),stratified5_seed42,0.94
 exp_0010,2026-08-31,configs/exp_0010.yaml,xgb,stratified5_seed42,0.88042,0.00194,,oof/exp_0010.npy,123,exp_0001,"new family: XGBoost defaults, baseline features (diversity for the blend)"
 exp_0011,2026-08-31,configs/exp_0011.yaml,blend(exp_0007+exp_0010),stratified5_seed42,0.87849,0.00174,,oof/exp_0011.npy,0,exp_0007,blend of exp_0007+exp_0010
 exp_0012,2026-08-31,configs/exp_0012.yaml,rule(exp_0011),stratified5_seed42,0.94955,0.00138,0.94948,oof/exp_0011.npy,712,exp_0011,"decision rule: per-class multipliers, cross-fitted on OOF"
+exp_0017,2026-09-01,configs/exp_0017.yaml,lgbm,stratified5_seed42,0.95014,0.00144,,oof/exp_0017.npy,75,exp_0004,add 9 fold-fitted exact-value TE columns (3 columns x 3 classes)
+exp_0018,2026-09-01,configs/exp_0018.yaml,lgbm,stratified5_seed42,0.95017,0.00144,,oof/exp_0018.npy,128,exp_0017,encode all 7 numeric columns instead of the 3 the replication test kept

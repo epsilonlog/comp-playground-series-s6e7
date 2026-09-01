@@ -72,9 +72,21 @@ Facts a fresh session needs; do not re-derive or reopen without new evidence.
   `water_intake` 0.0435; `heart_rate` 0.0232. `step_count`/`bmi`/`exercise_duration`/
   `calorie_expenditure` read r≈0. Concentrated in the bands where the minorities live,
   **not** in the mid-band crater (base rate 0.0013 there). Test coverage 89–99%.
-  Evidence in notebook 06 §4. The fold-fitted per-value target-encoding experiment is
-  licensed but **not yet run** — as is one FT-Transformer for the decorrelation the
-  two-GBDT blend measurably lacks (exp_0013/0014 harness exists).
+  Evidence in notebook 06 §4.
+- **The source paid (exp_0017, 2026-09-01):** exp_0004 + 9 fold-fitted exact-value TE
+  columns → **cv 0.95014**, paired +0.00059 at t=7.2, 5/5 folds positive. First score
+  above the tie band. Leak-free by construction (`encoders.py`: fitted per fold, training
+  matrix from an inner 5-fold) and by diagnostic (fit-val gap +0.00177 vs the parent's
+  +0.00154). **exp_0018** encodes all 7 numeric columns instead of 3: +0.00003 at t=0.4 —
+  the replication test is a *validated screen*, so trust it to pre-filter columns.
+- **Open decision — the selection rule contradicts itself.** As written (highest
+  `cv_mean`, ties within 0.001 → fewer moving parts) exp_0017 tops the table but exp_0004
+  is inside its tie band, so the tie-break returns exp_0004. The 0.001 band is *unpaired*
+  resolution; the paired t=7.2 is the finer instrument. Do not silently rewrite a
+  pre-registered rule — the operator decides. Carry forward: state the next competition's
+  rule in paired terms (promote on |t| > 3 vs the incumbent).
+- **Still unspent:** one FT-Transformer for the decorrelation the two-GBDT blend
+  measurably lacks (exp_0013/0014 harness exists; needs the Kaggle GPU run to finish).
 - **Carry to the next competition:** fix the metric-correct decision rule *before*
   laddering — argmax gains here largely vanished once the prior was corrected.
 

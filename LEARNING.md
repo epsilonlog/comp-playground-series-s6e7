@@ -417,3 +417,43 @@ Two practical riders:
 Mechanism worth remembering for any Playground competition: the generator resamples
 numeric values from a finite support, so a repeated value behaves like a
 high-cardinality **category**, not a point on a continuum.
+
+## 2026-09-01 — What the reopened round actually taught (exp_0017/0018)
+
+The exact-value idea won on the first try: +0.00059 at paired t = 7.2, five of five folds
+positive, `cv_mean` 0.95014 — the first score above the four-way tie band and the largest
+readable gain since the prior correction. Three lessons, none of them about the score.
+
+**Spend an experiment testing your screen, not only your idea.** exp_0018 encoded all
+seven numeric columns instead of the three the replication test kept: +0.00003 at t = 0.4.
+Twelve extra columns, nothing bought. That run produced no score and was the more
+valuable of the two, because it converted "the replication test looks sensible" into "the
+replication test picks the right 3 of 7 columns" — a two-minute diagnostic that now
+replaces four training runs, here and in every later competition.
+
+**A target encoder has two leaks, not one, and one diagnostic for both.**
+
+1. *Across the fold* — fit on the fold's training rows only. Everyone remembers this one.
+2. *Within the training rows* — a row's own label is inside its value's mean. Worst on
+   rare values, where the mean **is** the label. Closed by building the training matrix
+   from an inner K-fold, so no row is encoded by a statistic it helped compute.
+
+The check that catches either: the **fit-vs-val gap**, not the CV score. A leaking
+encoder makes the training score climb away from validation. Ours: +0.00177 against the
+un-encoded parent's +0.00154. Unchanged — which is what "no leak" looks like.
+
+**The pre-registered selection rule turned out to measure with the blunter instrument.**
+It reads: highest `cv_mean`, ties within 0.001 break toward fewer moving parts. But 0.001
+is the resolution of a *single unpaired* `cv_mean` — the wobble when nothing changed. A
+paired comparison on frozen folds cancels that fold-luck and resolves several times
+finer. So a result at t = 7.2 lands *inside* the rule's tie band and gets tie-broken away.
+Rewriting the rule after seeing the result is the anti-pattern the pre-registration
+exists to prevent, so the defect stays visible and the fix is carried forward: **write
+the next rule in paired terms** — promote a candidate when its paired diff against the
+incumbent clears |t| > 3, break genuine ties by moving parts.
+
+And the sentence to keep about stopping: **stop when you are out of information sources,
+not when you are out of ideas.** exp_0017 was correctly declined in August — nobody had
+measured that the signal existed, so its outcome was unreadable in advance. One
+measurement later it was readable, and it won immediately. Ideas are unlimited and mostly
+worthless; sources are countable.

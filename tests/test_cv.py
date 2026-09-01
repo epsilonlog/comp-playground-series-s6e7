@@ -190,3 +190,22 @@ def test_slice_report_covers_all_rows_once(harness: dict[str, object]) -> None:
 def test_registry_rejects_unknown_model() -> None:
     with pytest.raises(KeyError, match="unknown model"):
         registry.build("gpt7")
+
+
+def test_run_with_a_fitted_encoder_appends_columns_and_scores(harness: dict[str, object]) -> None:
+    """The encoder path must produce a full OOF and test predictions like any other run."""
+    train = harness["train"]
+    assert isinstance(train, pl.DataFrame)
+    result = run(
+        ExperimentConfig("exp_9020", "lgbm", FAST_LGBM, encoder="exact_value_te"),
+        train=train,
+        test=make_train(n=120, seed=3).drop(io.TARGET),
+        folds_path=harness["folds_path"],
+        oof_dir=harness["oof_dir"],
+        ledger=harness["ledger"],
+    )
+    assert len(result.fold_scores) == 5
+    oof = np.load(result.oof_path)
+    assert oof.shape == (train.height, len(io.CLASSES))
+    assert np.isfinite(oof).all()
+    assert result.test_pred_path is not None and result.test_pred_path.exists()
