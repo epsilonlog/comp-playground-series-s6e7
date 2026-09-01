@@ -24,7 +24,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from s6e7 import folds, io, metric
+from s6e7 import decision, folds, io, metric
 
 __all__ = [
     "categorical_grid",
@@ -34,6 +34,7 @@ __all__ = [
     "missingness",
     "numeric_grid",
     "oof_diagnostics",
+    "rule_landscape",
     "target_overview",
     "train_test_shift",
 ]
@@ -553,4 +554,83 @@ def importance(model: Any, feature_names: Sequence[str], top: int = 30) -> Figur
     kind = getattr(models[0], "importance_type", "importance")
     ax.set_xlabel(f"{kind} (mean of {len(models)} model{'s' if len(models) > 1 else ''})")
     ax.set_title(f"top {len(order)} features")
+    return fig
+
+
+def rule_landscape(
+    proba: NDArray[np.floating],
+    y_true: NDArray[np.integer],
+    *,
+    size: int = 41,
+    resolution: float = 0.001,
+    searched: NDArray[np.floating] | None = None,
+) -> Figure:
+    """Decision: is the multiplier search a *fit* (narrow peak, must be cross-fitted
+    carefully) or a *plateau* (any multiplier in a wide band scores the same)?
+
+    Left: balanced accuracy over the whole ``(m_fit, m_unhealthy)`` log grid, with the
+    within-one-resolution region outlined — that outline IS the set of multipliers this
+    harness cannot tell apart. Right: the two 1-D slices through the grid optimum, so
+    the width of the plateau is readable in multiplier units.
+
+    Readings that change a decision: a *wide* plateau containing ``1/prior`` says the
+    rule is theory recovered from data and the exact searched value does not matter (so
+    per-fold disagreement in the multipliers is harmless). A *narrow* peak far from
+    ``1/prior`` says the search is repairing calibration error, and every downstream use
+    of it must be cross-fitted.
+    """
+    m1, m2, ba = decision.landscape(proba, y_true, size=size)
+    best = float(ba.max())
+    bi, bj = np.unravel_index(int(ba.argmax()), ba.shape)
+    prior_m = decision.prior_multipliers(y_true)
+    names = io.CLASSES if proba.shape[1] == len(io.CLASSES) else tuple(str(i) for i in range(3))
+
+    fig, axes = _grid(2, ncols=2, panel=(5.6, 4.4))
+    ax = axes[0]
+    mesh = ax.pcolormesh(m1, m2, ba.T, cmap="viridis", shading="nearest")
+    fig.colorbar(mesh, ax=ax, label="balanced accuracy")
+    ax.contour(m1, m2, ba.T, levels=[best - resolution], colors="white", linewidths=1.6)
+    ax.plot(1.0, 1.0, "s", color=TEST_COLOR, ms=8, label="argmax (m = 1)")
+    ax.plot(prior_m[1], prior_m[2], "*", color="white", ms=16, mec="black", label="1 / prior")
+    ax.plot(m1[bi], m2[bj], "o", color="black", ms=7, label="grid best")
+    if searched is not None:
+        ax.plot(
+            searched[1], searched[2], "P", color="#FFD166", ms=11, mec="black", label="searched"
+        )
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel(f"m[{names[1]}]")
+    ax.set_ylabel(f"m[{names[2]}]")
+    ax.set_title(
+        f"the surface the search climbs - white outline = within {resolution} of best",
+        fontsize=10,
+    )
+    ax.legend(fontsize=8, loc="upper left")
+
+    ax = axes[1]
+    inside = ba >= best - resolution
+    for slice_ba, axis_vals, opt, name, color in (
+        (ba[:, bj], m1, m1[bi], names[1], PALETTE[0]),
+        (ba[bi, :], m2, m2[bj], names[2], PALETTE[1]),
+    ):
+        band = axis_vals[slice_ba >= best - resolution]
+        ax.plot(axis_vals, slice_ba, "-o", ms=3, color=color, label=f"m[{name}] (other at optimum)")
+        ax.axvspan(float(band.min()), float(band.max()), color=color, alpha=0.10)
+        ax.axvline(opt, color=color, ls=":", lw=1)
+    ax.axhspan(best - resolution, best, color="#BBBBBB", alpha=0.5, zorder=0)
+    ax.axvline(prior_m[1], color=PALETTE[0], ls="--", lw=1)
+    ax.axvline(prior_m[2], color=PALETTE[1], ls="--", lw=1)
+    ax.annotate(
+        f"dashed = 1/prior ({prior_m[1]:.1f}, {prior_m[2]:.1f})",
+        (0.03, 0.06),
+        xycoords="axes fraction",
+        fontsize=8,
+    )
+    ax.set_xscale("log")
+    ax.set_ylim(best - 0.02, best + 0.002)
+    ax.set_xlabel("multiplier")
+    ax.set_ylabel("balanced accuracy")
+    frac = 100.0 * float(inside.mean())
+    ax.set_title(f"best {best:.5f} - {frac:.0f}% of the grid is inside one resolution")
+    ax.legend(fontsize=8, loc="lower right")
     return fig

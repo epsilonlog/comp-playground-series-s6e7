@@ -262,3 +262,158 @@ winning 0.95085 — a gap of ~0.0011, one resolution unit).
 - **Also transferable:** fixed-epoch training instead of best-checkpoint restore (the
   restore is +0.0003 of optimism, not skill), and stop on logloss, never on a noisy
   discrete metric like balanced accuracy (−0.012).
+
+## 2026-09-01 — The 2-SE bar breaks when you sort a table
+
+`missing_vs_target` now reports `se_diff`, the standard error of the gap between
+"rate when missing" and "rate when present": `sqrt(p_m(1-p_m)/n_m + p_p(1-p_p)/n_p)`.
+The instinct is to call a gap real at 2 SE (the 95% single-test bar). But the table has
+13 features x 3 classes = 39 rows and we sort by `abs_diff` — that is 39 draws and we
+read the luckiest one. Chance that at least one clean-noise row exceeds 2 SE:
+1 - 0.95^39 ≈ 86%. The 2-SE bar fires on nothing, almost every time.
+
+Raising the bar fixes it: at 3 SE the false-alarm rate over 39 rows is ≈ 10%, at
+3.5 SE ≈ 2%. So ~3.5 SE is the working threshold for a *sorted* table of this size —
+the same logic as Bonferroni, without the formality.
+
+Worked numbers from our own table: bmi's unhealthy gap is 0.0568 with SE ≈ 0.003 →
+~18 SE, unmistakable (this is the `bmi_is_null` finding already in CLAUDE.md). A gap
+of 0.004 at the same SE is 1.3 SE — indistinguishable from the luckiest of 39 coin
+flips, and not worth an indicator column.
+
+Transferable rule: the more rows a diagnostic table has and the harder you sort it,
+the higher the SE bar. 2 SE is for one pre-registered comparison, not for scanning.
+
+## 2026-09-01 — The two-Gaussian model is a ruler, not an assumption
+
+`spread_sd` (call it d) is the gap between the extreme class means in units of the
+feature's own SD. Converting d into "what one cut could score" uses two equal-width
+normal curves d apart — and the confusion was reading that as a claim that the data *is*
+normal. It is not. It is a reference world with a known answer, used as a measuring
+unit: the same move as Cohen's d in classical statistics, and the model behind LDA.
+Nothing competition-specific about it.
+
+The derivation that makes best_split_acc = Phi(d/2) obvious: the best single threshold
+is the crossing point of the two identical curves — the midpoint between the means
+(nudge it either way and you misclassify more than you rescue). The midpoint is d/2 SDs
+from each mean, so each class lands on its own side with probability Phi(d/2). The two
+wrong-side tails, Phi(-d/2) each, are exactly the overlapping area: overlap = 2*Phi(-d/2).
+
+Worked numbers from our table: sleep_duration d = 2.13 -> midpoint 1.06 SD from each
+mean -> Phi(1.06) ≈ 0.857 — one cut gets 86% of the extreme classes. water_intake
+d = 0.019 -> Phi(0.01) ≈ 0.504 — a coin flip; its *means* carry nothing (though equal
+means with unequal variances would also score d = 0 and still be separable — the plot's
+job, not the table's).
+
+## 2026-09-01 — Paired comparison: why a gain smaller than the noise is still readable
+
+"Is the improvement real?" = "is it too big for luck?", and the reference luck is
+measured. One fold score wobbles ±0.002 (the binomial SE from notebooks 01/03), so
+exp_0002''s +0.0009 is invisible on absolute scores. But both experiments were scored on
+the same frozen folds, and most of a fold''s wobble is *which rows landed in it* — luck
+that hits both runs identically. Subtracting per fold cancels it: the five differences
+spread only 0.0004. The comparison never pays the fold noise; that is the entire reason
+folds are frozen.
+
+The t-statistic is the same move as reading abs_diff/se_diff in the missingness table —
+the gain in units of its own SE: t = 0.0009 / (0.0004/sqrt(5)) ≈ 4.8. With 4 degrees of
+freedom the bar is |t| > ~3 (fat tails, plus the many-experiments multiple-look
+inflation), so 4.8 is real. Free cross-check: all five diffs positive has probability
+(1/2)^5 = 1/32 under noise. Contrast exp_0006: alternating signs, t = −0.3 — noise.
+
+Transferable chain, one idea three times: rate vs SE (01), max_bin_dev vs noise floor
+(02), paired diff vs its SE (05). Nothing is "big"; things are big *relative to the
+noise of the instrument that measured them* — and pairing is how you shrink the
+instrument''s noise without more data.
+
+## 2026-09-01 — The decision rule is arithmetic, not tuning
+
+Balanced accuracy is `(1/K) · Σ hit_k / n_k`, so one more correct row of class k adds
+exactly `1/(K·n_k)`. That is a **price list fixed by the data**, and the whole rule falls
+out of it. Here: one `at-risk` row is worth 0.00000056, one `fit` row 0.0000084 (14.9×),
+one `unhealthy` row 0.0000058 (10.3×).
+
+- The metric will trade 15 correct majority rows for one correct `fit` row and call it
+  even. Argmax refuses every such trade — it counts rows, which is right for plain
+  accuracy and wrong here. That is the entire +0.077.
+- Writing recall as `E[q_k · 1(d=k)] / π_k` makes BA a sum with exactly one indicator
+  firing per row, so rows do not interact and BA is maximised row by row:
+  `argmax_k q_k/π_k`. The multipliers **are** the price list. Nothing is fitted.
+- Scale cannot change an argmax, so fixing `m[majority] = 1` leaves K−1 free numbers —
+  two here, which is why the whole thing is one 2-D picture.
+- Sanity identity to run on any post-processing: rows moved per class × the price list
+  must reproduce the score change. Ours: −33,013 at-risk (−0.0186), +4,680 fit
+  (+0.0392), +8,897 unhealthy (+0.0514) = **+0.072**, and measured 0.87742 → 0.94941.
+  Raw accuracy got 19,436 rows *worse* in the process.
+- Read the shape too: if the majority-class recall loss is not the biggest number in that
+  table, the multipliers are doing something other than correcting the prior.
+
+**Derived beats searched, and searching proves it.** Zero-parameter `1/π` scores 0.94932;
+the 2-parameter grid search scores 0.94941. The search buys **+0.00009** — a tenth of the
+resolution. Plot the whole objective surface and the reason is obvious: the set of
+multipliers within one resolution of the best covers 9% of a 100×100-fold box —
+`m_fit` anywhere in 6–40, `m_unhealthy` anywhere in 4–20.
+
+**The plateau also settles a question that looked like instability.** The five per-fold
+searches disagreed by 36% on `m_unhealthy` (10.2 vs 13.8). That reads as noise-chasing
+until you check what it costs: swapping those two changes 0.43% of labels and 0.00006 of
+score. **Parameter agreement is not the stability test; score agreement is.** A flat
+objective has no unique argmax to be stable about.
+
+The general answer to "is this overfitting or really helping?" is unchanged and cheap:
+hold out the rows you tuned on. In-sample search 0.94941 vs cross-fitted 0.94931 — a
++0.0001 gap for 2 parameters against 550k rows.
+
+Carry forward: fix the metric-correct decision rule *first*, from the price list, before
+laddering anything. Our encoding (+0.0009) and capacity (+0.0039) gains largely
+evaporated once the prior was corrected — they had been buying the same boundary region
+the rule fixes wholesale.
+
+## 2026-09-01 — Ask what resolution the model can see, not only where it fails
+
+The error-profile loop (segment → hypothesise → one experiment) produced two feature
+ideas here and both were honest zeros. Its blind spot: it asks **where** the model fails,
+never **at what resolution** the model is allowed to see a column.
+
+Do that arithmetic. LightGBM bins a numeric column into ≤255 bins *before* looking for a
+split, then expresses it through a few dozen leaf thresholds. `sleep_duration` has 701
+distinct values on a 0.01 grid → ~3 values per bin. **Structure living at single-value
+resolution is destroyed at binning time and unreachable at any capacity.** More trees
+cannot recover information the histogram threw away.
+
+Testing for it needs care, because per-value rate scatter confounds three things:
+binomial noise (900 rows → SE ≈ 0.016), the column's smooth trend, and real value-level
+signal. The split-half replication test separates all three:
+
+1. split rows at random; compute per-value class rates on each half
+2. subtract a leave-one-out *local neighbour* baseline from each — that removes the trend
+3. correlate the two halves' residuals across values
+
+Noise does not replicate (r ≈ 0, SE ≈ `1/√n_values`). Leftover trend replicates *and* is
+smooth (positive lag-1 autocorrelation). Exact-value signal replicates *and* is white.
+
+Result here: `sleep_duration` r = 0.94 at SE 0.041 (≈23 SE) with lag-1 −0.14, and a
+replicating residual sd of 0.094 — *larger than the class's own 8.4% base rate*. The raw
+rows confirm it: 5.55 h → 55.3% unhealthy, 5.58 h → 16.5%, each with SE ≈ 0.012, so
+22 SE apart between neighbours 0.03 h apart, and then it swings back. `water_intake` and
+`heart_rate` too; `step_count`, `bmi`, `exercise_duration`, `calorie_expenditure` read
+r ≈ 0 — a working null.
+
+**A verdict is not an effect size.** Run the same test inside bands and the structure
+replicates everywhere, but in the mid-band the `unhealthy` base rate is 0.0013 and the
+replicating residual 0.0015 — real, and worth nothing, because there are no minority rows
+there to win. The prize is the low band: base rate 0.394, residual 0.173, i.e. individual
+values swinging 10%–70%. Always read the residual *against the base rate*, never the
+verdict alone.
+
+Two practical riders:
+- **Coverage decides whether it is usable.** 89–99% of test rows sit on a train value
+  seen ≥30 times, so a per-value encoding applies to nearly every row. Value-level signal
+  with low coverage buys nothing.
+- **Never screen this kind of idea on a row subsample.** Per-value statistics need the
+  repeats to exist; the 11th-place writeup read −0.0017 on 70k rows and +0.0012 on full
+  data — opposite signs. Shrink folds or epochs, never rows.
+
+Mechanism worth remembering for any Playground competition: the generator resamples
+numeric values from a finite support, so a repeated value behaves like a
+high-cardinality **category**, not a point on a continuum.

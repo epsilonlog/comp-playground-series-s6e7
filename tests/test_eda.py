@@ -9,6 +9,7 @@ import pytest
 from s6e7.eda import (
     category_levels,
     class_profile,
+    exact_value_signal,
     level_target_rates,
     missing_cooccurrence,
     missing_vs_target,
@@ -215,6 +216,18 @@ def test_missing_vs_target_detects_relationship() -> None:
     assert row["abs_diff"] == 1.0
 
 
+def test_missing_vs_target_se_matches_hand_calculation() -> None:
+    """4 missing rows at p=0.5, 4 present rows at p=0.5 -> se = sqrt(2 * 0.25/4)."""
+    df = pl.DataFrame(
+        {
+            "x": [1.0, 1.0, 1.0, 1.0, None, None, None, None],
+            "y": ["a", "a", "b", "b", "a", "a", "b", "b"],
+        }
+    )
+    row = missing_vs_target(df, ["x"], "y").filter(pl.col("target_class") == "a").row(0, named=True)
+    assert row["se_diff"] == pytest.approx(math.sqrt(2 * 0.25 / 4), abs=1e-5)
+
+
 def test_missing_vs_target_skips_columns_with_no_nulls() -> None:
     df = pl.DataFrame({"x": [1.0, 2.0], "y": ["a", "b"]})
     assert missing_vs_target(df, ["x"], "y").height == 0
@@ -358,3 +371,26 @@ def test_null_count_vs_target_splits_on_one_columns_nullity() -> None:
     absent = out.filter(pl.col("split") == "a null")
     assert absent["n_nulls"].to_list() == [1, 2]
     assert absent["n_rows"].to_list() == [4, 4]
+
+
+def test_exact_value_signal_separates_value_level_signal_from_noise() -> None:
+    """One column where the exact value sets the rate, one where it says nothing."""
+    rng = np.random.default_rng(0)
+    values = np.repeat(np.arange(40, dtype=float), 300)
+    rate = np.where(values % 2 == 0, 0.6, 0.1)  # white in value, so not a trend
+    signal = pl.DataFrame(
+        {
+            "value": values,
+            "flat": values,
+            "y": np.where(rng.random(values.size) < rate, "unhealthy", "at-risk"),
+        }
+    )
+    out = exact_value_signal(signal, ["value", "flat"], "y", classes=["unhealthy"], window=9)
+    verdicts = dict(zip(out["column"].to_list(), out["verdict"].to_list(), strict=True))
+    assert verdicts["value"] == "exact-value signal"
+
+    noise = signal.with_columns(
+        pl.Series("y", np.where(rng.random(values.size) < 0.3, "unhealthy", "at-risk"))
+    )
+    out_noise = exact_value_signal(noise, ["value"], "y", classes=["unhealthy"], window=9)
+    assert out_noise["verdict"].to_list() == ["noise"]

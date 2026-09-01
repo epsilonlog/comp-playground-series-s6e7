@@ -47,3 +47,35 @@ def test_cross_fit_is_scored_out_of_fold() -> None:
     assert len(result.fold_multipliers) == 5
     assert all(len(m) == 3 and m[0] == 1.0 for m in result.fold_multipliers)
     assert float(np.mean(result.fold_scores)) > 0.999
+
+
+def test_prior_multipliers_are_the_inverse_prior() -> None:
+    _, y = planted()  # 600 / 200 / 100
+    assert decision.prior_multipliers(y).tolist() == [1.0, 3.0, 6.0]
+
+
+def test_landscape_matches_the_slow_exact_path_everywhere() -> None:
+    """The log-threshold shortcut must be exact, not approximate — every grid cell."""
+    proba, y = planted()
+    m1, m2, ba = decision.landscape(proba, y, size=6)
+    for i, a in enumerate(m1):
+        for j, b in enumerate(m2):
+            exact = metric.balanced_accuracy(y, decision.apply(proba, np.array([1.0, a, b])))
+            assert ba[i, j] == exact
+
+
+def test_landscape_peak_agrees_with_search() -> None:
+    proba, y = planted()
+    _, best = decision.search(proba, y)
+    _, _, ba = decision.landscape(proba, y, size=25)
+    assert ba.max() == best
+
+
+def test_rule_effect_accounts_for_the_score_change() -> None:
+    """Recall deltas weighted by 1/(K*n_k) must reproduce the balanced-accuracy gain."""
+    proba, y = planted()
+    m, best = decision.search(proba, y)
+    effect = decision.rule_effect(proba, y, m)
+    gain = float(effect["delta"].sum()) / 3.0
+    argmax_score = metric.balanced_accuracy(y, proba.argmax(axis=1))
+    assert abs(gain - (best - argmax_score)) < 1e-12

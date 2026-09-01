@@ -51,14 +51,30 @@ Facts a fresh session needs; do not re-derive or reopen without new evidence.
 - **Ladder complete (exp_0002–exp_0012, 2026-08-31):** encoding +0.0009 (paired t=4.8),
   capacity +0.0039, features ±0.0000 (two honest negatives), **prior correction +0.077**
   (dominates everything), routes converge (weights 0.94945 / searched rule 0.94931),
-  XGBoost 0.88042 at argmax, blend dead (co-errors ~10× the independence line).
+  XGBoost 0.88042 at argmax, blend dead (co-error 0.0293 vs an independence line of
+  0.0011 — 27×, error correlation 0.885).
   Post-correction: four-way tie 0.94931–0.94956 inside one resolution.
+- **The rule is arithmetic, not tuning (measured 2026-09-01):** zero-parameter `1/π`
+  scores 0.94932, the 2-parameter grid search 0.94941 — the search buys +0.00009. The
+  within-one-resolution plateau covers 9% of the multiplier box (`m_fit` 6–40,
+  `m_unhealthy` 4–20), which is also why the five per-fold searches disagree 36% on
+  `m_unhealthy` while the score moves 0.00006. Judge tuned post-processing on score
+  stability, never parameter agreement. Derivation + landscape figure in notebook 07.
 - **Selection rule (declared before further LB looks):** highest `cv_mean`; ties within
   0.001 break toward fewer moving parts. **Final = exp_0004** (LGBM defaults +
   `class_weight=balanced`); second pick = exp_0012 (blend + rule).
-- **Stopped, deliberately:** remaining ideas (rule-on-xgb, CatBoost, Optuna, stacking)
-  have best cases inside the tie band — unreadable even if they win. Do not resume the
-  ladder without a new information source (new data, new feature domain, new metric).
+- **Stopped, deliberately:** remaining *knob* ideas (rule-on-xgb, CatBoost, Optuna,
+  stacking) have best cases inside the tie band — unreadable even if they win.
+- **New information source found (2026-09-01) — the stopping clause has fired.**
+  `eda.exact_value_signal` (split-half replication test) measures genuine *per-value*
+  target structure that a 255-bin histogram cannot reach: `sleep_duration` r=0.94 at
+  SE 0.041 with a replicating residual sd of 0.094 against a 0.084 base rate;
+  `water_intake` 0.0435; `heart_rate` 0.0232. `step_count`/`bmi`/`exercise_duration`/
+  `calorie_expenditure` read r≈0. Concentrated in the bands where the minorities live,
+  **not** in the mid-band crater (base rate 0.0013 there). Test coverage 89–99%.
+  Evidence in notebook 06 §4. The fold-fitted per-value target-encoding experiment is
+  licensed but **not yet run** — as is one FT-Transformer for the decorrelation the
+  two-GBDT blend measurably lacks (exp_0013/0014 harness exists).
 - **Carry to the next competition:** fix the metric-correct decision rule *before*
   laddering — argmax gains here largely vanished once the prior was corrected.
 

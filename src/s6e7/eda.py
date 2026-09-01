@@ -17,6 +17,7 @@ from typing import Any, Literal, cast
 
 import numpy as np
 import polars as pl
+from numpy.typing import NDArray
 
 NULL_LABEL = "<null>"
 
@@ -206,6 +207,12 @@ def missing_vs_target(df: pl.DataFrame, cols: Sequence[str], target: str) -> pl.
     injected at random and an indicator is dead weight.
 
     Sort by ``abs_diff`` descending to find any column where it matters.
+
+    ``se_diff`` is the standard error of the difference between the two rates,
+    ``sqrt(p_m(1-p_m)/n_missing + p_p(1-p_p)/n_present)``. Read ``abs_diff`` against it:
+    the table has ``len(cols) * n_classes`` rows and sorting surfaces the luckiest one,
+    so the single-test 2-SE bar fires on noise almost every run. Require ~3.5 SE before
+    believing a row; below that, the indicator is dead weight until proven otherwise.
     """
     classes = _classes(df, target)
     records: list[dict[str, Any]] = []
@@ -219,17 +226,24 @@ def missing_vs_target(df: pl.DataFrame, cols: Sequence[str], target: str) -> pl.
         if True not in lookup or False not in lookup:
             continue
 
+        n_missing = lookup[True]["rows"]
+        n_present = lookup[False]["rows"]
         for cls in classes:
             when_missing = lookup[True][f"p_{cls}"]
             when_present = lookup[False][f"p_{cls}"]
+            se = sqrt(
+                when_missing * (1.0 - when_missing) / n_missing
+                + when_present * (1.0 - when_present) / n_present
+            )
             records.append(
                 {
                     "column": col,
                     "target_class": cls,
-                    "n_missing": lookup[True]["rows"],
+                    "n_missing": n_missing,
                     "p_when_missing": round(when_missing, 4),
                     "p_when_present": round(when_present, 4),
                     "abs_diff": round(abs(when_missing - when_present), 4),
+                    "se_diff": round(se, 5),
                 }
             )
     return pl.DataFrame(records)
@@ -750,3 +764,179 @@ def shift_power(
             }
         )
     return pl.DataFrame(rows)
+
+
+def _loo_neighbour_baseline(
+    rate: NDArray[np.float64], count: NDArray[np.float64], window: int
+) -> NDArray[np.float64]:
+    """Local, count-weighted mean of `rate` over neighbouring values, excluding self.
+
+    Leave-one-out is the whole point: a baseline that included the value itself would
+    absorb the very deviation being measured. Excluding self also induces a mild
+    *negative* lag-1 autocorrelation in the residuals — expected, and the reason the
+    smooth-trend check below only reads *positive* autocorrelation as trend.
+    """
+    base = np.empty_like(rate)
+    for i in range(len(rate)):
+        lo, hi = max(0, i - window // 2), min(len(rate), i + window // 2 + 1)
+        mask = np.ones(hi - lo, dtype=bool)
+        mask[i - lo] = False
+        base[i] = np.average(rate[lo:hi][mask], weights=count[lo:hi][mask])
+    return base
+
+
+def exact_value_signal(
+    df: pl.DataFrame,
+    cols: Sequence[str],
+    target: str,
+    *,
+    classes: Sequence[str] | None = None,
+    min_count: int = 30,
+    window: int = 9,
+    seed: int = 42,
+) -> pl.DataFrame:
+    """Does the *exact value* of a numeric column carry target signal beyond its trend?
+
+    Decision: whether per-value (high-cardinality) target encoding can pay. A tree bins
+    a numeric column (LightGBM: 255 bins) and then cuts it into a few dozen leaves, so
+    any signal that lives at the resolution of *single values* is invisible to it no
+    matter how many trees you grow. If this table says the signal is there, the feature
+    is unreachable by capacity and reachable by encoding.
+
+    Method — a split-half replication test, because the obvious test cannot work. Raw
+    per-value rate scatter confounds three things: binomial noise, the column's smooth
+    trend, and genuine value-level signal. So: split the rows in half at random; on each
+    half compute the per-value class rate and subtract a leave-one-out local baseline
+    (`window` neighbouring values), which removes the trend; then correlate the two
+    halves' residuals across values.
+
+    * noise does not replicate  ->  ``replication_r`` ~ 0 (SE ~ ``1/sqrt(n_values)``)
+    * leftover trend replicates *and* is smooth  ->  ``lag1_autocorr`` clearly positive
+    * exact-value signal replicates and is white  ->  large ``replication_r``, ``lag1``<=0
+
+    ``resid_sd`` is the observed scatter of one half's residuals; ``true_sd`` is the part
+    that replicates, ``resid_sd * sqrt(replication_r)`` — read it against the class's
+    base rate to size the prize. Only values with at least `min_count` rows in *both*
+    halves are used, and ``pct_rows`` reports how much of the column that leaves.
+    """
+    labels = list(classes) if classes is not None else _classes(df, target)
+    rng = np.random.default_rng(seed)
+    frame = df.with_columns(pl.Series("__half", rng.integers(0, 2, df.height)))
+
+    records: list[dict[str, Any]] = []
+    for col in cols:
+        present = frame.filter(pl.col(col).is_not_null())
+        for cls in labels:
+            grouped = present.group_by([col, "__half"]).agg(
+                pl.len().alias("n"), (pl.col(target) == cls).mean().alias("rate")
+            )
+            left = grouped.filter(pl.col("__half") == 0)
+            right = grouped.filter(pl.col("__half") == 1)
+            joined = (
+                left.join(right, on=col, how="inner", suffix="_r")
+                .filter((pl.col("n") >= min_count) & (pl.col("n_r") >= min_count))
+                .sort(col)
+            )
+            n_values = joined.height
+            if n_values < 4 * window:
+                records.append({"column": col, "class": cls, "n_values": n_values})
+                continue
+
+            rate_l = joined["rate"].to_numpy().astype(np.float64)
+            rate_r = joined["rate_r"].to_numpy().astype(np.float64)
+            cnt_l = joined["n"].to_numpy().astype(np.float64)
+            cnt_r = joined["n_r"].to_numpy().astype(np.float64)
+            res_l = rate_l - _loo_neighbour_baseline(rate_l, cnt_l, window)
+            res_r = rate_r - _loo_neighbour_baseline(rate_r, cnt_r, window)
+
+            r = float(np.corrcoef(res_l, res_r)[0, 1])
+            r_se = 1.0 / sqrt(n_values)
+            lag1 = float(np.corrcoef(res_l[:-1], res_l[1:])[0, 1])
+            rows_used = int(cnt_l.sum() + cnt_r.sum())
+            verdict = (
+                "exact-value signal"
+                if r > 4 * r_se and lag1 <= 0.15
+                else ("smooth trend left over" if lag1 > 0.15 else "noise")
+            )
+            records.append(
+                {
+                    "column": col,
+                    "class": cls,
+                    "n_values": n_values,
+                    "pct_rows": round(100.0 * rows_used / present.height, 1),
+                    "base_rate": round(float(np.average(rate_l, weights=cnt_l)), 4),
+                    "resid_sd": round(float(res_l.std()), 4),
+                    "replication_r": round(r, 3),
+                    "r_se": round(r_se, 3),
+                    "lag1_autocorr": round(lag1, 3),
+                    "true_sd": round(float(res_l.std() * sqrt(max(r, 0.0))), 4),
+                    "verdict": verdict,
+                }
+            )
+    return pl.DataFrame(records)
+
+
+def value_target_rates(
+    df: pl.DataFrame,
+    col: str,
+    target: str,
+    *,
+    classes: Sequence[str] | None = None,
+    min_count: int = 30,
+) -> pl.DataFrame:
+    """Class rate at every single value of `col`, with the binomial SE of each rate.
+
+    Decision: read `exact_value_signal`'s verdict with your own eyes. Neighbouring values
+    that differ by many SE are signal no binned split can reach; neighbouring values
+    within ~2 SE are the noise the same table would show for any column.
+    """
+    labels = list(classes) if classes is not None else _classes(df, target)
+    out = (
+        df.filter(pl.col(col).is_not_null())
+        .group_by(col)
+        .agg(
+            pl.len().alias("n"),
+            *[(pl.col(target) == cls).mean().alias(cls) for cls in labels],
+        )
+        .filter(pl.col("n") >= min_count)
+        .sort(col)
+    )
+    return out.with_columns(
+        [
+            ((pl.col(cls) * (1 - pl.col(cls)) / pl.col("n")).sqrt()).round(4).alias(f"se_{cls}")
+            for cls in labels
+        ]
+    )
+
+
+def value_coverage(
+    train: pl.DataFrame,
+    test: pl.DataFrame,
+    cols: Sequence[str],
+    *,
+    min_count: int = 30,
+) -> pl.DataFrame:
+    """Share of test rows whose exact value was seen often enough in train to encode.
+
+    Decision: whether a per-value encoding can actually be applied at prediction time.
+    A column with real value-level signal but low coverage buys nothing — most test rows
+    would fall back to the global mean.
+    """
+    records: list[dict[str, Any]] = []
+    for col in cols:
+        frequent = (
+            train.filter(pl.col(col).is_not_null())
+            .group_by(col)
+            .agg(pl.len().alias("n"))
+            .filter(pl.col("n") >= min_count)
+        )
+        hit = int(test.join(frequent.select(col), on=col, how="semi").height)
+        records.append(
+            {
+                "column": col,
+                "frequent_values": frequent.height,
+                "test_rows_covered": hit,
+                "pct_test_covered": round(100.0 * hit / test.height, 1),
+            }
+        )
+    return pl.DataFrame(records)

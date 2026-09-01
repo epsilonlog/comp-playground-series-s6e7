@@ -23,6 +23,7 @@ def test_every_plot_returns_a_figure() -> None:
         plots.train_test_shift(train, test, ["bmi", "gender"]),
         plots.fold_distribution(train, fold, io.TARGET, test=test),
         plots.oof_diagnostics(train[io.TARGET].to_numpy(), oof),
+        plots.rule_landscape(oof, features.encode_target(train[io.TARGET]), size=7),
     ]
     assert all(isinstance(f, Figure) for f in figs)
 
