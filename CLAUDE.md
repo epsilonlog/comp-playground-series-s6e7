@@ -27,7 +27,7 @@ screens, it's too long.
 
 ---
 
-## Project state — settled decisions (updated 2026-08-30)
+## Project state — settled decisions (updated 2026-09-03)
 
 Facts a fresh session needs; do not re-derive or reopen without new evidence.
 
@@ -85,8 +85,24 @@ Facts a fresh session needs; do not re-derive or reopen without new evidence.
   resolution; the paired t=7.2 is the finer instrument. Do not silently rewrite a
   pre-registered rule — the operator decides. Carry forward: state the next competition's
   rule in paired terms (promote on |t| > 3 vs the incumbent).
-- **Still unspent:** one FT-Transformer for the decorrelation the two-GBDT blend
-  measurably lacks (exp_0013/0014 harness exists; needs the Kaggle GPU run to finish).
+- **FT-Transformer landed (kernel ran 2026-08-31, carried back 2026-09-03).** exp_0013
+  (raw, argmax) 0.87159 — *below* LGBM defaults (−0.0013, t=−3.2, 0/5) and just as
+  GBDT-correlated (0.878 vs 0.885). exp_0014 (+39 catstat per-value TE columns) 0.89091,
+  +0.0193 at t=18.5, error correlation with the LGBM combo down to 0.803. Rule runs:
+  exp_0015 0.94931 (the tie band again); **exp_0016 0.95068 — new ledger top**, +0.00054
+  vs exp_0017 at paired t=10.3 (5/5), +0.00112 vs exp_0004; rule overfit 0.00003. The
+  family alone bought nothing; the family + per-value encoding did — exp_0017's lever on
+  a model that fails on different rows. Selection rule now returns exp_0017 (inside the
+  0.001 band, fewer parts) while the paired instrument returns exp_0016: same
+  contradiction as above, one rung higher. Operator decides; not rewritten.
+- **New families harnessed, awaiting Kaggle runs (2026-09-03):** TabM (`models/tabm.py`,
+  exp_0019 raw / exp_0020 + exp_0017's `exact_value_te`) and TabPFN-3 (`models/tabpfn.py`,
+  exp_0021 / exp_0022, 100k stratified context per fold). Both prior-correct *in the
+  model* (balanced CE / `balance_probabilities`), so their ledger argmax is comparable
+  with exp_0004/exp_0017 without rule runs. Runners: `notebooks/kaggle_tabm/` (pushed),
+  `notebooks/kaggle_tabpfn/` (needs a `TABPFN_TOKEN` Kaggle secret — operator action).
+  Purpose: decorrelated OOF for a stack; exp_0014's 0.803 is the first movement in that
+  number. Builder defaults are the baselines — one variable per run, nothing tuned.
 - **Carry to the next competition:** fix the metric-correct decision rule *before*
   laddering — argmax gains here largely vanished once the prior was corrected.
 

@@ -1,0 +1,26 @@
+# exp_0015 — immutable once run (2026-09-03)
+exp_id: exp_0015
+model: rule(exp_0013)
+params: {}
+features: baseline
+folds: data/processed/folds.parquet
+decision_rule: per-class multipliers, cross-fitted on OOF (cv.run_rule)
+parent: exp_0013
+changed: "decision rule: per-class multipliers, cross-fitted on OOF"
+provenance: >
+  Declared in configs/exp_0013.yaml when the FT-Transformer harness was built: the
+  network trains on the plain likelihood (Kawamata recipe, class_weight None), so its
+  ledger row is raw argmax and the prior-corrected score is measured here, the same way
+  exp_0009 corrected exp_0007. Run at home on the OOF the Kaggle kernel carried back.
+result:
+  cv_mean: 0.94931
+  cv_std: 0.00142
+  fold_scores: [0.94974, 0.95130, 0.94871, 0.94938, 0.94742]
+  runtime_s: 475
+  final_multipliers: [1.0, 17.22, 9.09]   # searched on the full OOF; applies to exp_0013_test
+  notes: >
+    Identical to exp_0009 (rule on the LGBM combo, 0.94931) to five decimals - a
+    coincidence in the fifth digit, but the point stands: after the prior correction
+    the raw FT-Transformer lands exactly in the four-way tie band (0.94931-0.94956),
+    like every other argmax model did. The family alone buys nothing; exp_0016 asks
+    whether the encoding does.

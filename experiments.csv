@@ -13,3 +13,7 @@ exp_0011,2026-08-31,configs/exp_0011.yaml,blend(exp_0007+exp_0010),stratified5_s
 exp_0012,2026-08-31,configs/exp_0012.yaml,rule(exp_0011),stratified5_seed42,0.94955,0.00138,0.94948,oof/exp_0011.npy,712,exp_0011,"decision rule: per-class multipliers, cross-fitted on OOF"
 exp_0017,2026-09-01,configs/exp_0017.yaml,lgbm,stratified5_seed42,0.95014,0.00144,,oof/exp_0017.npy,75,exp_0004,add 9 fold-fitted exact-value TE columns (3 columns x 3 classes)
 exp_0018,2026-09-01,configs/exp_0018.yaml,lgbm,stratified5_seed42,0.95017,0.00144,,oof/exp_0018.npy,128,exp_0017,encode all 7 numeric columns instead of the 3 the replication test kept
+exp_0013,2026-08-31,configs/exp_0013.yaml,ftt,stratified5_seed42,0.87159,0.00120,,oof/exp_0013.npy,1063,exp_0001,"new family: FT-Transformer (masamlp, Kawamata recipe), raw features"
+exp_0014,2026-08-31,configs/exp_0014.yaml,ftt_te,stratified5_seed42,0.89091,0.00329,,oof/exp_0014.npy,4211,exp_0013,"add 39 per-value target-encoding features (catstat, fitted inside the fold)"
+exp_0015,2026-09-03,configs/exp_0015.yaml,rule(exp_0013),stratified5_seed42,0.94931,0.00142,,oof/exp_0013.npy,475,exp_0013,"decision rule: per-class multipliers, cross-fitted on OOF"
+exp_0016,2026-09-03,configs/exp_0016.yaml,rule(exp_0014),stratified5_seed42,0.95068,0.00142,,oof/exp_0014.npy,750,exp_0014,"decision rule: per-class multipliers, cross-fitted on OOF"

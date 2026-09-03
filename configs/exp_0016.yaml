@@ -1,0 +1,37 @@
+# exp_0016 — immutable once run (2026-09-03)
+exp_id: exp_0016
+model: rule(exp_0014)
+params: {}
+features: baseline
+folds: data/processed/folds.parquet
+decision_rule: per-class multipliers, cross-fitted on OOF (cv.run_rule)
+parent: exp_0014
+changed: "decision rule: per-class multipliers, cross-fitted on OOF"
+provenance: >
+  Declared in configs/exp_0014.yaml. The rule on exp_0014's OOF (FT-Transformer + 39
+  catstat per-value TE columns), so the neural family's best argmax model gets the same
+  correction every GBDT row received. Run at home on the OOF the Kaggle kernel carried
+  back.
+result:
+  cv_mean: 0.95068
+  cv_std: 0.00142
+  fold_scores: [0.95123, 0.95281, 0.95007, 0.95022, 0.94907]
+  runtime_s: 750
+  final_multipliers: [1.0, 15.40, 9.84]   # searched on the full OOF; applies to exp_0014_test
+  in_sample_score: 0.95071                # cross-fitted 0.95068: the rule overfits by 0.00003
+  paired_vs_exp_0017: {diff: +0.00054, t: 10.3, folds_positive: 5/5}
+  paired_vs_exp_0004: {diff: +0.00112, t: 10.4, folds_positive: 5/5}
+  paired_vs_exp_0012: {diff: +0.00113, t: 10.1, folds_positive: 5/5}
+  notes: >
+    New ledger top. The per-fold multipliers agree on 4 of 5 folds (15.4 / 9.84) and the
+    fifth moves the score by nothing - the plateau notebook 07 mapped. Read together with
+    exp_0015 (0.94931): the network alone lands in the tie band, the network plus
+    per-value encoding clears it by half a resolution, and the paired instrument says the
+    gap over exp_0017 is real (t=10.3, all folds). Same lever as exp_0017 - per-value
+    target structure - on a model that fails on different rows (error correlation with
+    the LGBM combo 0.803 vs 0.885 between the GBDTs), which is also why a stack on top of
+    exp_0014 + exp_0017 is the first blend in this project with measured room to work.
+    Selection-rule status: exp_0017 sits inside exp_0016's 0.001 band with fewer moving
+    parts, so the pre-registered rule returns exp_0017 while the paired t returns
+    exp_0016 - the same contradiction CLAUDE.md already logs, one rung higher. Operator's
+    call; not rewritten here.

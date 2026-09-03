@@ -16,3 +16,21 @@ provenance: >
   catstat==0.4.0 TargetEncoder(stats=("mean",), target_type="multiclass", smooth="auto",
   numeric="direct"), fitted per fold on that fold's training rows only (internally
   out-of-fold, so no row encodes itself).
+result:
+  cv_mean: 0.89091
+  cv_std: 0.00329
+  fold_scores: [0.88957, 0.89454, 0.89436, 0.88801, 0.88808]
+  runtime_s: 4211          # 4x exp_0013: catstat encodes 13 columns inside every fold
+  per_class_recall: {at-risk: 0.989, fit: 0.843, unhealthy: 0.841}
+  paired_vs_parent: {diff: +0.01933, t: 18.5, folds_positive: 5/5}
+  error_corr_vs_exp_0007: 0.803   # vs 0.878 raw - the encoding is what decorrelates
+  notes: >
+    Carried back 2026-09-03. The largest argmax gain in the ledger after the prior
+    correction: +0.0193 at t=18.5, every fold positive, against a parent that was itself
+    below LightGBM. This is the notebook's lever reproduced - the per-value structure
+    exp_0017 measured with the replication test, reached here through catstat's
+    39 columns instead of our 9. Best argmax model in the ledger (xgb exp_0010 0.88042,
+    lgbm exp_0007 0.87742). Also the least GBDT-correlated model so far: errors shared
+    with exp_0007 at 0.803 vs 0.885 between lgbm and xgb - still 25x the independence
+    line (both wrong 0.0261 vs 0.0010), so a blend stays a small effect, but the first
+    measured movement in that number. Rule-corrected score: exp_0016.

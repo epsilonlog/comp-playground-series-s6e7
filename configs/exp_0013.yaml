@@ -15,3 +15,18 @@ provenance: >
   with exp_0001..0012 beats matching its absolute number), and n_ens=1 instead of 4
   (its own paired measurement: +0.00017 BA, inside metric discreteness, at 4x wall
   clock). Trained on Kaggle GPU via notebooks/kaggle_ftt/ — local box is CPU-only torch.
+result:
+  cv_mean: 0.87159
+  cv_std: 0.00120
+  fold_scores: [0.87022, 0.87273, 0.87290, 0.87067, 0.87141]
+  runtime_s: 1063          # Kaggle T4, 5 folds x 16 epochs
+  per_class_recall: {at-risk: 0.993, fit: 0.827, unhealthy: 0.795}
+  paired_vs_parent: {diff: -0.00132, t: -3.2, folds_positive: 0/5}
+  error_corr_vs_exp_0007: 0.878   # the two GBDTs read 0.885 - no decorrelation from raw features
+  notes: >
+    Carried back 2026-09-03 from kernel aligh474/s6e7-ftt-exp-0013-0014 (run 2026-08-31).
+    On the 13 raw columns the FT-Transformer is a slightly WORSE argmax model than
+    LightGBM defaults (-0.0013, all five folds negative), and it fails on the same rows
+    (error correlation 0.878 vs the 0.885 between the two GBDT families). The source
+    notebook's 0.9506 was never the raw network - it was the network plus per-value
+    target encoding, which is exp_0014's variable. Rule-corrected score: exp_0015.
