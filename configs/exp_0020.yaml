@@ -1,0 +1,20 @@
+# exp_0020 — immutable once run
+exp_id: exp_0020
+model: tabm
+params: {}
+features: baseline   # the 9 TE columns are a FITTED transform (rule 3): built inside the
+                     # fold by encoders.exact_value_te, never a features.py entry
+encoder: exact_value_te
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0019
+changed: "add 9 fold-fitted exact-value TE columns (exp_0017's encoder)"
+provenance: >
+  One variable vs exp_0019: the representation. The encoder is exactly exp_0017's — the
+  three columns the split-half replication test kept (sleep_duration, water_intake,
+  heart_rate) x 3 classes, m-estimate smoothed, inner 5-fold on the training rows — the
+  feature engineering behind the project's best score (0.95014, paired t=7.2 on LGBM).
+  The question is whether a neural net with piecewise-linear embeddings already reaches
+  the per-value structure on its own or needs it spelled out the way the trees did.
+  Full scale only: per-value statistics cannot be screened on a row subsample
+  (LEARNING.md). The TE columns enter the wrapper as extra numerics.

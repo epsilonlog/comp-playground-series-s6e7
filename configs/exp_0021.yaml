@@ -1,0 +1,20 @@
+# exp_0021 — immutable once run
+exp_id: exp_0021
+model: tabpfn
+params: {}          # builder defaults ARE the baseline recipe — see src/s6e7/models/tabpfn.py
+features: baseline
+folds: data/processed/folds.parquet
+decision_rule: argmax   # prior-corrected inside predict_proba: balance_probabilities=True
+                        # is the zero-parameter 1/pi rule (notebook 07: 0.94932 on LGBM)
+parent: exp_0004
+changed: "new family: TabPFN-3 in-context (100k stratified context per fold, prior-balanced), raw features"
+provenance: >
+  TabPFN (Prior Labs, pip tabpfn; TabPFN-3 default checkpoint, gated weights via
+  TABPFN_TOKEN). No gradient step on our data: each fold's model is a class-proportional
+  100k-row subsample of the fit rows held as context (max_fit_rows — the checkpoint
+  admits 1M x 200, but attention over the context is quadratic in wall clock; raise it
+  once a fold has been priced). n_estimators 8 (library default), fit_mode
+  fit_with_cache, categorical_features_indices = the six code columns, NaN native.
+  One variable vs exp_0004: the model family. Motivation: the most different learner
+  available — an OOF for a stack to consume, where two GBDTs contributed nothing.
+  Trained on Kaggle GPU via notebooks/kaggle_tabpfn/.

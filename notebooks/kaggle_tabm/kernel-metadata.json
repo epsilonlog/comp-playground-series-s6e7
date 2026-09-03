@@ -1,0 +1,17 @@
+{
+  "id": "aligh474/s6e7-tabm-exp-0019-0020",
+  "title": "s6e7-tabm-exp-0019-0020",
+  "code_file": "kaggle_tabm.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "docker_image_pinning_type": "latest",
+  "dataset_sources": ["aligh474/s6e7-frozen-folds"],
+  "competition_sources": ["playground-series-s6e7"],
+  "kernel_sources": [],
+  "model_sources": []
+}

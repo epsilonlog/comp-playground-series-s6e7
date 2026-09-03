@@ -1,0 +1,23 @@
+# exp_0019 — immutable once run
+exp_id: exp_0019
+model: tabm
+params: {}          # builder defaults ARE the baseline recipe — see src/s6e7/models/tabm.py
+features: baseline
+folds: data/processed/folds.parquet
+decision_rule: argmax   # prior-corrected during training: balanced class weights in the
+                        # cross-entropy, the route exp_0004 established (+0.077)
+parent: exp_0004
+changed: "new family: TabM (k=32, piecewise-linear embeddings, balanced CE), raw features"
+provenance: >
+  TabM (Gorishniy et al., ICLR 2025; pip tabm==0.0.3, rtdl_num_embeddings==0.0.12).
+  TabM.make defaults with embeddings (n_blocks 2, d_block 512, dropout 0.1, k 32), the
+  example notebook's piecewise-linear embeddings (48 quantile bins, d_embedding 16), the
+  README's optimizer (AdamW lr 2e-3, wd 3e-4), batch 1024, early stopping (patience 8)
+  on a stratified 10% holdout of the FIT rows on the class-weighted NLL of the
+  ensemble-mean probability. Preprocessing fitted inside the fold by the wrapper: median
+  imputation + QuantileTransformer(normal) for numerics, a null flag per base numeric
+  column as a cardinality-2 categorical, null as a reserved level for the six categorical
+  codes. One variable vs exp_0004: the model family (both prior-corrected in training).
+  Motivation: notebook 07 — the two-GBDT blend is dead (error correlation 0.885) and the
+  only measured decorrelation in this competition came from a neural net. Trained on
+  Kaggle GPU via notebooks/kaggle_tabm/.

@@ -1,0 +1,16 @@
+# exp_0022 — immutable once run
+exp_id: exp_0022
+model: tabpfn
+params: {}
+features: baseline
+encoder: exact_value_te   # exp_0017's fitted transform, appended inside the fold
+folds: data/processed/folds.parquet
+decision_rule: argmax
+parent: exp_0021
+changed: "add 9 fold-fitted exact-value TE columns (exp_0017's encoder)"
+provenance: >
+  One variable vs exp_0021: the representation. Same encoder as exp_0017/exp_0020. The
+  encoder is fitted on all 552k fit rows of the fold (not on the 100k context), so the
+  TE columns carry per-value statistics the context alone could not estimate — the one
+  way a 100k-row in-context learner sees the whole fold. Full scale only (LEARNING.md:
+  never screen per-value ideas on a row subsample).
